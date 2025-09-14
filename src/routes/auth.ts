@@ -22,7 +22,7 @@ export default function setupAuthRoutes(app: Express) {
       const password = String(req.body?.password ?? "");
 
       if (!loginId || !password)
-        return res.status(400).json({ error: "Login ID and password are required" });
+        return res.status(400).json({ error: "Login ID and password are required bitch" });
 
       // Pull exactly what you need
       const [row] = await db
