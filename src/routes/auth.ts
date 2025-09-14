@@ -48,7 +48,7 @@ export default function setupAuthRoutes(app: Express) {
         return res.status(401).json({ error: "Invalid credentials" });
 
       const { hashedPassword, ...safe } = row;
-      return res.json({ success: true, user: toJsonSafe(safe), message: "Login successful" });
+      return res.json({ success: true, user: toJsonSafe(safe), message: "Login successful bitch" });
     } catch (err) {
       console.error("Login error:", err);
       return res.status(500).json({ error: "Login failed" });
