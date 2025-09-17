@@ -62,4 +62,4 @@ export default function setupR2Upload(app: Express) {
       return res.status(500).json({ success: false, error: err.message || "Upload failed due to an unknown error." });
     }
   });
-}
+} 
