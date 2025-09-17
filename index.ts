@@ -9,6 +9,7 @@ import setupAuthRoutes from './src/routes/auth';  // NEW
 import setupUsersRoutes from './src/routes/users'; // NEW
 import setupCompaniesRoutes from './src/routes/companies'; // NEW2
 import setupLogoutAuthRoutes from './src/routes/logout'; // NEW2
+import setupR2Upload from './src/routes/cloudfareRoutes/cloudfare'; 
 import setupBrandsAndMappingRoutes from './src/routes/dataFetchingRoutes/brandMappingFetch';
 import setupClientReportsRoutes from './src/routes/dataFetchingRoutes/clientReports';
 import setupCollectionReportsRoutes from './src/routes/dataFetchingRoutes/collectionReports';
@@ -187,7 +188,11 @@ setupPjpPatchRoutes(app);
 
 // ---------- GEO TRACKING SETUP--------
 setupGeoTrackingRoutes(app);
+
+//------------ CLOUDFARE ----------------
+setupR2Upload(app);
 console.log('✅ All routes registered successfully.');
+
 
 // --- Error Handling Middleware ---
 
