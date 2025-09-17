@@ -1,4 +1,4 @@
-//  server/src/routes/postRoutes/tvr.ts 
+// server/src/routes/postRoutes/tvr.ts
 // Technical Visit Reports POST endpoints using createAutoCRUD pattern
 
 import { Request, Response, Express } from 'express';
@@ -7,24 +7,38 @@ import { technicalVisitReports } from '../../db/schema';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 
-// Manual Zod schema EXACTLY matching the table schema
+// Manual Zod schema EXACTLY matching the table schema (robust to numbers/strings for some fields)
 const technicalVisitReportSchema = z.object({
   userId: z.number().int().positive(),
-  reportDate: z.string().or(z.date()),
+
+  // Accept string or date; preprocess converts to Date
+  reportDate: z.preprocess((arg) => (arg ? new Date(String(arg)) : undefined), z.date()),
+
   visitType: z.string().max(50),
   siteNameConcernedPerson: z.string().max(255),
   phoneNo: z.string().max(20),
   emailId: z.string().max(255).optional().nullable().or(z.literal("")),
   clientsRemarks: z.string().max(500),
   salespersonRemarks: z.string().max(500),
-  checkInTime: z.string().or(z.date()),
-  checkOutTime: z.string().or(z.date()).optional().nullable().or(z.literal("")),
+
+  // Accept string or date; preprocess converts to Date
+  checkInTime: z.preprocess((arg) => (arg ? new Date(String(arg)) : undefined), z.date()),
+  checkOutTime: z.preprocess((arg) => (arg === "" || arg === null || typeof arg === 'undefined') ? null : new Date(String(arg)), z.date().nullable()),
+
   inTimeImageUrl: z.string().max(500).optional().nullable().or(z.literal("")),
   outTimeImageUrl: z.string().max(500).optional().nullable().or(z.literal("")),
   siteVisitBrandInUse: z.array(z.string()).min(1),
   siteVisitStage: z.string().optional().nullable().or(z.literal("")),
   conversionFromBrand: z.string().optional().nullable().or(z.literal("")),
-  conversionQuantityValue: z.string().optional().nullable().or(z.literal("")),
+
+  // Accept number or string or empty literal or null; always transform to string | null
+  conversionQuantityValue: z.union([z.number(), z.string(), z.literal(""), z.null()]).transform((val) => {
+    if (val === null) return null;
+    if (val === "") return null;
+    // numbers -> string; strings -> trimmed string; ensure empty -> null
+    return String(val).trim() === "" ? null : String(val);
+  }),
+
   conversionQuantityUnit: z.string().max(20).optional().nullable().or(z.literal("")),
   associatedPartyName: z.string().optional().nullable().or(z.literal("")),
   influencerType: z.array(z.string()).min(1),
@@ -64,28 +78,35 @@ function createAutoCRUD(app: Express, config: {
       // Process the request body for array conversion if needed
       const payload: any = { ...req.body };
       
+      // If siteVisitBrandInUse comes as comma string, coerce to array
       if (typeof payload.siteVisitBrandInUse === 'string') {
         payload.siteVisitBrandInUse = payload.siteVisitBrandInUse.split(',').map((s: string) => s.trim()).filter(Boolean);
       }
+
+      // If influencerType comes as comma string, coerce to array
       if (typeof payload.influencerType === 'string') {
         payload.influencerType = payload.influencerType.split(',').map((s: string) => s.trim()).filter(Boolean);
       }
 
+      // If conversionQuantityValue arrives as number it's fine; schema handles number|string|null
       const executedAutoFields: any = {};
       for (const [key, fn] of Object.entries(autoFields)) {
         executedAutoFields[key] = fn();
       }
 
-      const parsed = schema.parse(payload);
+      // Let Zod preprocessors coerce strings -> Dates / numbers -> strings as configured
+      const parsed = technicalVisitReportSchema.parse(payload);
 
+      // Generate ID manually (fix for the database default issue)
       const generatedId = randomUUID().replace(/-/g, '').substring(0, 25);
 
+      // Prepare data for insertion
       const insertData = {
         id: generatedId,
         ...parsed,
-        reportDate: new Date(parsed.reportDate),
-        checkInTime: new Date(parsed.checkInTime),
-        checkOutTime: parsed.checkOutTime ? new Date(parsed.checkOutTime) : null,
+        reportDate: parsed.reportDate instanceof Date ? parsed.reportDate : new Date(parsed.reportDate),
+        checkInTime: parsed.checkInTime instanceof Date ? parsed.checkInTime : new Date(parsed.checkInTime),
+        checkOutTime: parsed.checkOutTime ? (parsed.checkOutTime instanceof Date ? parsed.checkOutTime : new Date(parsed.checkOutTime)) : null,
         ...executedAutoFields
       };
 
@@ -106,7 +127,7 @@ function createAutoCRUD(app: Express, config: {
             field: err.path.join('.'),
             message: err.message,
             code: err.code,
-            received: err.received
+            received: (err as any).received
           }))
         });
       }
