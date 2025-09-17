@@ -1,5 +1,6 @@
 // server/src/routes/postRoutes/dvr.ts
 // Daily Visit Reports POST endpoints using createAutoCRUD pattern
+// Manual validation strictly matching the daily_visit_reports table schema.
 
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
@@ -7,61 +8,58 @@ import { dailyVisitReports } from '../../db/schema';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 
-// Manual Zod schema for Daily Visit Report
+// Manual Zod schema matching your DB table exactly
 const dailyVisitReportSchema = z.object({
   userId: z.number().int().positive(),
 
-  // Accept string or date; preprocess converts to Date
+  // DB: date not null
   reportDate: z.preprocess((arg) => (arg ? new Date(String(arg)) : undefined), z.date()),
 
-  outletName: z.string().max(255),
-  contactPerson: z.string().max(255).optional().nullable().or(z.literal("")),
-  phoneNo: z.string().max(20),
-  emailId: z.string().max(255).optional().nullable().or(z.literal("")),
-  purposeOfVisit: z.string().max(500).optional().nullable().or(z.literal("")),
+  dealerType: z.string().max(50),
+  dealerName: z.string().max(255).optional().nullable(),
+  subDealerName: z.string().max(255).optional().nullable(),
 
-  brandSelling: z.array(z.string()).min(1),
+  location: z.string().max(500),
 
-  // Required fields (adjust types if your DB differs)
-  dealerType: z.string().max(100),
-  location: z.string().max(255),
+  // numeric(10,7)
   latitude: z.preprocess((v) => (typeof v === 'string' ? parseFloat(v) : v), z.number()),
   longitude: z.preprocess((v) => (typeof v === 'string' ? parseFloat(v) : v), z.number()),
+
   visitType: z.string().max(50),
-  dealerTotalPotential: z.preprocess((v) => (v === "" || v === null || typeof v === 'undefined') ? null : Number(v), z.number().nullable()),
-  dealerBestPotential: z.preprocess((v) => (v === "" || v === null || typeof v === 'undefined') ? null : Number(v), z.number().nullable()),
-  todayOrderMt: z.preprocess((v) => (v === "" || v === null || typeof v === 'undefined') ? null : Number(v), z.number().nullable()),
-  todayCollectionRupees: z.preprocess((v) => (v === "" || v === null || typeof v === 'undefined') ? null : Number(v), z.number().nullable()),
 
-  // feedbacks: accept array or comma string; always transform to array
-  feedbacks: z.union([z.array(z.string()), z.string()]).transform((val) => {
-    if (Array.isArray(val)) return val;
-    return val ? String(val).split(',').map(s => s.trim()).filter(Boolean) : [];
-  }),
+  // numeric(10,2) not null
+  dealerTotalPotential: z.preprocess((v) => (v === "" || v === null || typeof v === 'undefined') ? undefined : Number(v), z.number()),
+  dealerBestPotential: z.preprocess((v) => (v === "" || v === null || typeof v === 'undefined') ? undefined : Number(v), z.number()),
 
-  clientsRemarks: z.string().max(500).optional().nullable().or(z.literal("")),
-  salespersonRemarks: z.string().max(500).optional().nullable().or(z.literal("")),
+  // text array not null
+  brandSelling: z.array(z.string()).min(1),
 
-  // Accept strings and convert to Date. checkOutTime may be empty/null -> null
+  contactPerson: z.string().max(255).optional().nullable(),
+  contactPersonPhoneNo: z.string().max(20).optional().nullable(),
+
+  // numeric not null
+  todayOrderMt: z.preprocess((v) => (v === "" || v === null || typeof v === 'undefined') ? undefined : Number(v), z.number()),
+  todayCollectionRupees: z.preprocess((v) => (v === "" || v === null || typeof v === 'undefined') ? undefined : Number(v), z.number()),
+
+  overdueAmount: z.preprocess((v) => (v === "" || v === null || typeof v === 'undefined') ? null : Number(v), z.number().nullable()),
+
+  // DB: varchar(500) not null
+  feedbacks: z.string().max(500).nonempty(),
+
+  solutionBySalesperson: z.string().max(500).optional().nullable(),
+  anyRemarks: z.string().max(500).optional().nullable(),
+
+  // timestamps: not null / nullable
   checkInTime: z.preprocess((arg) => (arg ? new Date(String(arg)) : undefined), z.date()),
   checkOutTime: z.preprocess((arg) => (arg === "" || arg === null || typeof arg === 'undefined') ? null : new Date(String(arg)), z.date().nullable()),
 
-  inTimeImageUrl: z.string().max(500).optional().nullable().or(z.literal("")),
-  outTimeImageUrl: z.string().max(500).optional().nullable().or(z.literal("")),
-  salesValue: z.string().optional().nullable().or(z.literal("")),
-  followUpRequired: z.boolean().optional(),
-}).transform((data) => ({
-  ...data,
-  contactPerson: data.contactPerson === "" ? null : data.contactPerson,
-  emailId: data.emailId === "" ? null : data.emailId,
-  purposeOfVisit: data.purposeOfVisit === "" ? null : data.purposeOfVisit,
-  clientsRemarks: data.clientsRemarks === "" ? null : data.clientsRemarks,
-  salespersonRemarks: data.salespersonRemarks === "" ? null : data.salespersonRemarks,
-  inTimeImageUrl: data.inTimeImageUrl === "" ? null : data.inTimeImageUrl,
-  outTimeImageUrl: data.outTimeImageUrl === "" ? null : data.outTimeImageUrl,
-  salesValue: data.salesValue === "" ? null : data.salesValue,
-}));
+  inTimeImageUrl: z.string().max(500).optional().nullable(),
+  outTimeImageUrl: z.string().max(500).optional().nullable(),
 
+  // createdAt/updatedAt are autoFields; not expected in request
+}).strict(); // no extra/unknown fields allowed
+
+// Handler that uses the schema above
 function createAutoCRUD(app: Express, config: {
   endpoint: string,
   table: any,
@@ -75,36 +73,55 @@ function createAutoCRUD(app: Express, config: {
     try {
       const payload: any = { ...req.body };
 
-      // Normalize brandSelling if it arrives as comma string
+      // Small, deliberate convenience: if brandSelling arrives as comma string, convert to array.
+      // This does NOT change the required schema — brandSelling must become an array before validation.
       if (typeof payload.brandSelling === 'string') {
         payload.brandSelling = payload.brandSelling.split(',').map((s: string) => s.trim()).filter(Boolean);
       }
 
-      // If client sent feedbacks as comma string -> schema transform will handle it,
-      // but keep this normalization to be defensive (no harm).
-      if (typeof payload.feedbacks === 'string') {
-        payload.feedbacks = payload.feedbacks.split(',').map((s: string) => s.trim()).filter(Boolean);
-      }
+      // NOTE: feedbacks is a required string in DB — do NOT accept array here.
+      // If a client sends an array for feedbacks, validation will fail (intentional).
 
+      // Execute autoFields
       const executedAutoFields: any = {};
       for (const [key, fn] of Object.entries(autoFields)) {
         executedAutoFields[key] = fn();
       }
 
-      // Validate and coerce with Zod (preprocessors convert strings -> Date/numbers)
+      // Strict validation against DB-matching schema
       const parsed = schema.parse(payload);
 
-      // parsed.reportDate, parsed.checkInTime, parsed.checkOutTime are Date objects (or null)
+      // Generate id consistent with your other routes
       const generatedId = randomUUID().replace(/-/g, '').substring(0, 25);
 
-      const insertData = {
+      // Prepare insert object. parsed has coerced values (dates, numbers)
+      const insertData: any = {
         id: generatedId,
-        ...parsed,
-        // ensure DB gets Date / null as appropriate (parsed already coerced)
+        userId: parsed.userId,
         reportDate: parsed.reportDate,
+        dealerType: parsed.dealerType,
+        dealerName: parsed.dealerName ?? null,
+        subDealerName: parsed.subDealerName ?? null,
+        location: parsed.location,
+        latitude: parsed.latitude,
+        longitude: parsed.longitude,
+        visitType: parsed.visitType,
+        dealerTotalPotential: parsed.dealerTotalPotential,
+        dealerBestPotential: parsed.dealerBestPotential,
+        brandSelling: parsed.brandSelling,
+        contactPerson: parsed.contactPerson ?? null,
+        contactPersonPhoneNo: parsed.contactPersonPhoneNo ?? null,
+        todayOrderMt: parsed.todayOrderMt,
+        todayCollectionRupees: parsed.todayCollectionRupees,
+        overdueAmount: parsed.overdueAmount ?? null,
+        feedbacks: parsed.feedbacks,
+        solutionBySalesperson: parsed.solutionBySalesperson ?? null,
+        anyRemarks: parsed.anyRemarks ?? null,
         checkInTime: parsed.checkInTime,
         checkOutTime: parsed.checkOutTime ?? null,
-        ...executedAutoFields
+        inTimeImageUrl: parsed.inTimeImageUrl ?? null,
+        outTimeImageUrl: parsed.outTimeImageUrl ?? null,
+        ...executedAutoFields,
       };
 
       const [newRecord] = await db.insert(table).values(insertData).returning();
@@ -128,7 +145,6 @@ function createAutoCRUD(app: Express, config: {
           }))
         });
       }
-
       res.status(500).json({
         success: false,
         error: `Failed to create ${tableName}`,
@@ -150,5 +166,5 @@ export default function setupDailyVisitReportsPostRoutes(app: Express) {
     }
   });
 
-  console.log('✅ Daily Visit Reports POST endpoints setup complete');
+  console.log('✅ Daily Visit Reports POST endpoints (DB-schema exact) setup complete');
 }
