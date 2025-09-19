@@ -4,7 +4,7 @@ info:
   description: API for managing users, companies, dealers, and daily visit reports for the BRIXTA application.
   version: 1.0.0
 servers:
-  - url: https://myserverbymycoco.onrender.com # <-- IMPORTANT: Change this to your actual hosted API URL
+  - url: https://myserverbymycoco.onrender.com
 paths:
   # ---------------- USERS ----------------
   /api/users:
@@ -14,31 +14,39 @@ paths:
       parameters:
         - name: limit
           in: query
-          schema: { type: integer, default: 50 }
+          schema: 
+            type: integer
+            default: 50
           description: Maximum number of users to return.
         - name: role
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
           description: Filter users by their role (e.g., 'salesman', 'manager').
         - name: region
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
           description: Filter users by their assigned region.
         - name: area
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
           description: Filter users by their assigned area.
         - name: status
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
           description: Filter users by their status (e.g., 'active', 'inactive').
         - name: companyId
           in: query
-          schema: { type: integer }
+          schema: 
+            type: integer
           description: Filter users by their company ID.
         - name: search
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
           description: Search for users by a partial match on their email.
       responses:
         '200':
@@ -57,7 +65,8 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: integer }
+          schema: 
+            type: integer
           description: The ID of the user to retrieve.
       responses:
         '200':
@@ -74,23 +83,30 @@ paths:
         - name: companyId
           in: path
           required: true
-          schema: { type: integer }
+          schema: 
+            type: integer
           description: The ID of the company.
         - name: limit
           in: query
-          schema: { type: integer, default: 50 }
+          schema: 
+            type: integer
+            default: 50
         - name: role
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: region
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: area
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: status
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
       responses:
         '200':
           description: A list of users for the specified company.
@@ -108,23 +124,30 @@ paths:
         - name: role
           in: path
           required: true
-          schema: { type: string }
+          schema: 
+            type: string
           description: The role to filter by.
         - name: limit
           in: query
-          schema: { type: integer, default: 50 }
+          schema: 
+            type: integer
+            default: 50
         - name: companyId
           in: query
-          schema: { type: integer }
+          schema: 
+            type: integer
         - name: region
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: area
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: status
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
       responses:
         '200':
           description: A list of users with the specified role.
@@ -142,23 +165,30 @@ paths:
         - name: region
           in: path
           required: true
-          schema: { type: string }
+          schema: 
+            type: string
           description: The region to filter by.
         - name: limit
           in: query
-          schema: { type: integer, default: 50 }
+          schema: 
+            type: integer
+            default: 50
         - name: companyId
           in: query
-          schema: { type: integer }
+          schema: 
+            type: integer
         - name: role
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: area
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: status
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
       responses:
         '200':
           description: A list of users in the specified region.
@@ -176,13 +206,17 @@ paths:
       parameters:
         - name: limit
           in: query
-          schema: { type: integer, default: 50 }
+          schema: 
+            type: integer
+            default: 50
         - name: region
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: area
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
       responses:
         '200':
           description: A list of companies.
@@ -200,7 +234,8 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type:integer }
+          schema: 
+            type: integer
       responses:
         '200':
           description: The requested company object.
@@ -216,13 +251,17 @@ paths:
         - name: region
           in: path
           required: true
-          schema: { type: string }
+          schema: 
+            type: string
         - name: limit
           in: query
-          schema: { type: integer, default: 50 }
+          schema: 
+            type: integer
+            default: 50
         - name: area
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
       responses:
         '200':
           description: A list of companies in the specified region.
@@ -240,20 +279,26 @@ paths:
       parameters:
         - name: limit
           in: query
-          schema: { type: integer, default: 50 }
+          schema: 
+            type: integer
+            default: 50
         - name: region
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: area
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: type
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
           description: Filter dealers by type.
         - name: userId
           in: query
-          schema: { type: integer }
+          schema: 
+            type: integer
           description: Filter dealers assigned to a specific user.
       responses:
         '200':
@@ -272,7 +317,8 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: integer }
+          schema: 
+            type: integer
       responses:
         '200':
           description: The requested dealer object.
@@ -288,19 +334,25 @@ paths:
         - name: userId
           in: path
           required: true
-          schema: { type: integer }
+          schema: 
+            type: integer
         - name: limit
           in: query
-          schema: { type: integer, default: 50 }
+          schema: 
+            type: integer
+            default: 50
         - name: region
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: area
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: type
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
       responses:
         '200':
           description: A list of dealers.
@@ -318,24 +370,33 @@ paths:
       parameters:
         - name: limit
           in: query
-          schema: { type: integer, default: 50 }
+          schema: 
+            type: integer
+            default: 50
         - name: startDate
           in: query
-          schema: { type: string, format: date }
+          schema: 
+            type: string
+            format: date
           description: The start date for the report range (e.g., YYYY-MM-DD).
         - name: endDate
           in: query
-          schema: { type: string, format: date }
+          schema: 
+            type: string
+            format: date
           description: The end date for the report range (e.g., YYYY-MM-DD).
         - name: userId
           in: query
-          schema: { type: integer }
+          schema: 
+            type: integer
         - name: dealerType
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: visitType
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
       responses:
         '200':
           description: A list of daily visit reports.
@@ -345,7 +406,6 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/DailyVisitReport'
-    # --- NEWLY ADDED POST METHOD ---
     post:
       summary: Create a new daily visit report
       description: Submits a new daily visit report. The server performs strict validation against the provided data.
@@ -372,7 +432,8 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: string }
+          schema: 
+            type: string
       responses:
         '200':
           description: The requested report object.
@@ -388,22 +449,31 @@ paths:
         - name: userId
           in: path
           required: true
-          schema: { type: integer }
+          schema: 
+            type: integer
         - name: limit
           in: query
-          schema: { type: integer, default: 50 }
+          schema: 
+            type: integer
+            default: 50
         - name: startDate
           in: query
-          schema: { type: string, format: date }
+          schema: 
+            type: string
+            format: date
         - name: endDate
           in: query
-          schema: { type: string, format: date }
+          schema: 
+            type: string
+            format: date
         - name: dealerType
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
         - name: visitType
           in: query
-          schema: { type: string }
+          schema: 
+            type: string
       responses:
         '200':
           description: A list of reports for the user.
@@ -418,61 +488,152 @@ components:
     User:
       type: object
       properties:
-        id: { type: integer, example: 1 }
-        email: { type: string, format: email, example: 'user@example.com' }
-        firstName: { type: string, example: 'John' }
-        lastName: { type: string, example: 'Doe' }
-        role: { type: string, example: 'salesman' }
-        phoneNumber: { type: string, example: '1234567890' }
-        region: { type: string, example: 'North' }
-        area: { type: string, example: 'Guwahati' }
-        salesmanLoginId: { type: string, nullable: true }
-        status: { type: string, example: 'active' }
-        companyId: { type: integer, example: 101 }
-        reportsToId: { type: integer, nullable: true, example: 5 }
-        createdAt: { type: string, format: 'date-time' }
-        updatedAt: { type: string, format: 'date-time' }
+        id:
+          type: integer
+          example: 1
+        email:
+          type: string
+          format: email
+          example: 'user@example.com'
+        firstName:
+          type: string
+          example: 'John'
+        lastName:
+          type: string
+          example: 'Doe'
+        role:
+          type: string
+          example: 'salesman'
+        phoneNumber:
+          type: string
+          example: '1234567890'
+        region:
+          type: string
+          example: 'North'
+        area:
+          type: string
+          example: 'Guwahati'
+        salesmanLoginId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          example: 'active'
+        companyId:
+          type: integer
+          example: 101
+        reportsToId:
+          type: integer
+          nullable: true
+          example: 5
+        createdAt:
+          type: string
+          format: 'date-time'
+        updatedAt:
+          type: string
+          format: 'date-time'
     Company:
       type: object
       properties:
-        id: { type: integer, example: 101 }
-        companyName: { type: string, example: 'BRIXTA Inc.' }
-        officeAddress: { type: string, example: '123 Main St, Guwahati' }
-        isHeadOffice: { type: boolean, example: true }
-        phoneNumber: { type: string, example: '0987654321' }
-        region: { type: string, example: 'North' }
-        area: { type: string, example: 'Guwahati' }
-        adminUserId: { type: integer, example: 1 }
-        createdAt: { type: string, format: 'date-time' }
-        updatedAt: { type: string, format: 'date-time' }
-        workosOrganizationId: { type: string, nullable: true }
+        id:
+          type: integer
+          example: 101
+        companyName:
+          type: string
+          example: 'BRIXTA Inc.'
+        officeAddress:
+          type: string
+          example: '123 Main St, Guwahati'
+        isHeadOffice:
+          type: boolean
+          example: true
+        phoneNumber:
+          type: string
+          example: '0987654321'
+        region:
+          type: string
+          example: 'North'
+        area:
+          type: string
+          example: 'Guwahati'
+        adminUserId:
+          type: integer
+          example: 1
+        createdAt:
+          type: string
+          format: 'date-time'
+        updatedAt:
+          type: string
+          format: 'date-time'
+        workosOrganizationId:
+          type: string
+          nullable: true
     Dealer:
       type: object
       properties:
-        id: { type: string, example: 'DEALER-001' }
-        dealerName: { type: string, example: 'ABC Hardware' }
-        address: { type: string, example: '456 Market Rd' }
-        region: { type: string, example: 'North' }
-        area: { type: string, example: 'Guwahati' }
-        type: { type: string, example: 'Retail' }
-        userId: { type: integer, example: 2 }
-        createdAt: { type: string, format: 'date-time' }
-        updatedAt: { type: string, format: 'date-time' }
-    DailyVisitReport: # This is the object returned by the server
+        id:
+          type: string
+          example: 'DEALER-001'
+        dealerName:
+          type: string
+          example: 'ABC Hardware'
+        address:
+          type: string
+          example: '456 Market Rd'
+        region:
+          type: string
+          example: 'North'
+        area:
+          type: string
+          example: 'Guwahati'
+        type:
+          type: string
+          example: 'Retail'
+        userId:
+          type: integer
+          example: 2
+        createdAt:
+          type: string
+          format: 'date-time'
+        updatedAt:
+          type: string
+          format: 'date-time'
+    DailyVisitReport:
       type: object
       properties:
-        id: { type: string, example: 'DVR-2025-001' }
-        reportDate: { type: string, format: date }
-        dealerId: { type: string, example: 'DEALER-001' }
-        dealerType: { type: string, example: 'Retail' }
-        visitType: { type: string, example: 'Sales' }
-        personMet: { type: string, example: 'Mr. Sharma' }
-        discussionPoint: { type: string, example: 'Discussed new product line.' }
-        outcome: { type: string, example: 'Positive feedback, potential order next week.' }
-        userId: { type: integer, example: 2 }
-        createdAt: { type: string, format: 'date-time' }
-        updatedAt: { type: string, format: 'date-time' }
-    # --- NEWLY ADDED SCHEMA FOR THE POST REQUEST BODY ---
+        id:
+          type: string
+          example: 'DVR-2025-001'
+        reportDate:
+          type: string
+          format: date
+        dealerId:
+          type: string
+          example: 'DEALER-001'
+        dealerType:
+          type: string
+          example: 'Retail'
+        visitType:
+          type: string
+          example: 'Sales'
+        personMet:
+          type: string
+          example: 'Mr. Sharma'
+        discussionPoint:
+          type: string
+          example: 'Discussed new product line.'
+        outcome:
+          type: string
+          example: 'Positive feedback, potential order next week.'
+        userId:
+          type: integer
+          example: 2
+        createdAt:
+          type: string
+          format: 'date-time'
+        updatedAt:
+          type: string
+          format: 'date-time'
     NewDailyVisitReport:
       type: object
       required:
@@ -491,27 +652,94 @@ components:
         - feedbacks
         - checkInTime
       properties:
-        userId: { type: integer, description: "ID of the user filing the report." }
-        reportDate: { type: string, format: date, description: "Date of the visit (YYYY-MM-DD)." }
-        dealerType: { type: string, maxLength: 50 }
-        dealerName: { type: string, maxLength: 255, nullable: true }
-        subDealerName: { type: string, maxLength: 255, nullable: true }
-        location: { type: string, maxLength: 500 }
-        latitude: { type: number, format: float }
-        longitude: { type: number, format: float }
-        visitType: { type: string, maxLength: 50 }
-        dealerTotalPotential: { type: number, format: double, description: "Total potential business from the dealer." }
-        dealerBestPotential: { type: number, format: double, description: "Best potential business from the dealer." }
-        brandSelling: { type: array, items: { type: string }, minItems: 1, description: "List of brands the dealer sells." }
-        contactPerson: { type: string, maxLength: 255, nullable: true }
-        contactPersonPhoneNo: { type: string, maxLength: 20, nullable: true }
-        todayOrderMt: { type: number, format: double, description: "Order amount in Metric Tons for today." }
-        todayCollectionRupees: { type: number, format: double, description: "Collection amount in Rupees for today." }
-        overdueAmount: { type: number, format: double, nullable: true }
-        feedbacks: { type: string, maxLength: 500, description: "General feedback from the visit." }
-        solutionBySalesperson: { type: string, maxLength: 500, nullable: true }
-        anyRemarks: { type: string, maxLength: 500, nullable: true }
-        checkInTime: { type: string, format: "date-time" }
-        checkOutTime: { type: string, format: "date-time", nullable: true }
-        inTimeImageUrl: { type: string, maxLength: 500, nullable: true }
-        outTimeImageUrl: { type: string, maxLength: 500, nullable: true }
+        userId:
+          type: integer
+          description: "ID of the user filing the report."
+        reportDate:
+          type: string
+          format: date
+          description: "Date of the visit (YYYY-MM-DD)."
+        dealerType:
+          type: string
+          maxLength: 50
+        dealerName:
+          type: string
+          maxLength: 255
+          nullable: true
+        subDealerName:
+          type: string
+          maxLength: 255
+          nullable: true
+        location:
+          type: string
+          maxLength: 500
+        latitude:
+          type: number
+          format: float
+        longitude:
+          type: number
+          format: float
+        visitType:
+          type: string
+          maxLength: 50
+        dealerTotalPotential:
+          type: number
+          format: double
+          description: "Total potential business from the dealer."
+        dealerBestPotential:
+          type: number
+          format: double
+          description: "Best potential business from the dealer."
+        brandSelling:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: "List of brands the dealer sells."
+        contactPerson:
+          type: string
+          maxLength: 255
+          nullable: true
+        contactPersonPhoneNo:
+          type: string
+          maxLength: 20
+          nullable: true
+        todayOrderMt:
+          type: number
+          format: double
+          description: "Order amount in Metric Tons for today."
+        todayCollectionRupees:
+          type: number
+          format: double
+          description: "Collection amount in Rupees for today."
+        overdueAmount:
+          type: number
+          format: double
+          nullable: true
+        feedbacks:
+          type: string
+          maxLength: 500
+          description: "General feedback from the visit."
+        solutionBySalesperson:
+          type: string
+          maxLength: 500
+          nullable: true
+        anyRemarks:
+          type: string
+          maxLength: 500
+          nullable: true
+        checkInTime:
+          type: string
+          format: "date-time"
+        checkOutTime:
+          type: string
+          format: "date-time"
+          nullable: true
+        inTimeImageUrl:
+          type: string
+          maxLength: 500
+          nullable: true
+        outTimeImageUrl:
+          type: string
+          maxLength: 500
+          nullable: true

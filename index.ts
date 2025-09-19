@@ -95,6 +95,8 @@ app.use(cors());
 // Enable the express.json middleware to parse JSON request bodies
 app.use(express.json());
 
+app.use(express.static(path.join(process.cwd(), 'public')));
+
 // Simple logging middleware to see incoming requests
 app.use((req: Request, res: Response, next: NextFunction) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
