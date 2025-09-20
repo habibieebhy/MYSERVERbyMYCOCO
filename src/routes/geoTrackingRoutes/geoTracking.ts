@@ -54,6 +54,38 @@ export default function setupGeoTrackingRoutes(app: Express) {
     }
   });
 
+  // GET latest tracking point for a specific user (most recent)
+  app.get('/api/geotracking/user/:userId/latest', async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.userId, 10);
+      if (isNaN(userId)) {
+        return res.status(400).json({ success: false, error: 'Invalid user ID.' });
+      }
+
+      const [latest] = await db.select()
+        .from(geoTracking)
+        .where(eq(geoTracking.userId, userId))
+        .orderBy(desc(geoTracking.recordedAt))
+        .limit(1);
+
+      // Normalize response for frontend convenience
+      if (!latest) {
+        return res.json({ success: true, data: null });
+      }
+
+      // (Optionally) convert Date -> ISO string if your frontend expects strings
+      const normalized = {
+        ...latest,
+        recordedAt: latest.recordedAt instanceof Date ? latest.recordedAt.toISOString() : latest.recordedAt,
+      };
+
+      return res.json({ success: true, data: normalized });
+    } catch (err) {
+      console.error('Get latest geo-tracking by User ID error:', err);
+      return res.status(500).json({ success: false, error: 'Failed to fetch latest tracking data.' });
+    }
+  });
+
   // -------------------------
   // POST Endpoint
   // -------------------------
