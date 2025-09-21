@@ -98,56 +98,46 @@ export class TelegramService {
    * Also forwards the original message to the webapp via socket.io.
    */
   // 👈 3. The message handler is now async to await the AI response
-  private async handleTelegramMessage(msg: TelegramBot.Message) {
+private async handleTelegramMessage(msg: TelegramBot.Message) {
     const text = (msg.text || msg.caption || '').trim();
     const chatId = msg.chat.id;
 
-    if (!text) return; // Ignore messages without text
-
-    // --- AI Integration Logic ---
-    // 👈 4. Check if the message is a command; if so, don't send it to the AI
-    if (text.startsWith('/')) {
-        console.log(`🤖 Received command from ${chatId}: "${text}". Bypassing AI.`);
-        if (text.toLowerCase() === '/start') {
-            this.sendToTelegram(chatId, 'Hello! I am an AI assistant powered by OpenRouter. Ask me anything.');
-        }
-        return; // Stop further processing for commands
+    // Ignore any non-text messages
+    if (!text) {
+        return;
     }
 
+    // Handle a basic /start command for new users, but let the AI handle everything else
+    if (text.toLowerCase() === '/start') {
+        this.sendToTelegram(
+            chatId,
+            'Hello! I am an AI assistant powered by OpenRouter. Ask me anything.'
+        );
+        return; // Stop processing after sending the welcome message
+    }
+
+    // For ALL other messages, proceed directly to the AI
     try {
-        console.log(`🧠 Processing AI request for chat ${chatId}...`);
+        console.log(`🧠 Processing AI request for chat ${chatId}: "${text}"`);
         // Let the user know the bot is thinking
         this.bot?.sendChatAction(chatId, 'typing');
 
         // Get the AI's response by calling the imported function
         const aiReply = await getAICompletion(text);
 
+        // Send the AI's reply back to the user
         if (aiReply) {
-            // Send the AI's reply back to the user
             await this.sendToTelegram(chatId, aiReply);
         } else {
             await this.sendToTelegram(chatId, "Sorry, I couldn't come up with a response.");
         }
 
     } catch (error) {
+        // Handle any errors during the AI call
         console.error(`💥 Failed to get AI response for chat ${chatId}:`, error);
         await this.sendToTelegram(chatId, "Sorry, I'm having trouble connecting to my brain right now. Please try again later.");
     }
-    // --- End of AI Logic ---
-
-    // The original functionality to forward the message to the webapp can remain
-    if (this.io) {
-        const incoming: TelegramIncoming = {
-            chatId: msg.chat.id,
-            text,
-            username: msg.from?.username,
-            firstName: msg.from?.first_name,
-            lastName: msg.from?.last_name,
-            raw: msg
-        };
-        this.io.emit('telegram:message', incoming);
-    }
-  }
+}
 
   private setupSocketHandlers() {
     if (!this.io) return;

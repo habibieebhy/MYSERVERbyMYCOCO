@@ -6,6 +6,10 @@ dotenv.config();
 
 let openai: OpenAI | null = null;
 
+// 👉 1. DEFINE THE AI'S PERSONALITY
+// This system prompt gives the AI its instructions and character.
+const systemPrompt = "You are a helpful and friendly AI assistant. Your name is CemTemChat AI. Keep your responses concise, friendly, and easy to understand. Do not mention that you are an AI unless it is directly relevant to the conversation.";
+
 /**
  * Executes an AI chat completion request using the global OpenAI client.
  */
@@ -18,7 +22,12 @@ async function getAICompletion(userMessage: string): Promise<string | null> {
   try {
     const completion = await openai.chat.completions.create({
       model: "deepseek/deepseek-chat-v3.1:free",
-      messages: [{ role: "user", content: userMessage }],
+      // 👉 2. SEND THE PROMPT WITH THE MESSAGE
+      // The 'messages' array now includes the system prompt before the user's message.
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
     });
 
     const content = completion.choices[0]?.message?.content;
