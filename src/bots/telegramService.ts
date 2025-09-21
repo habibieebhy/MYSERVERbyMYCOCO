@@ -1,4 +1,4 @@
-// telegramService.ts
+// src/bots/telegramService.ts
 // UPDATED: Now integrates an AI service for intelligent replies.
 
 import TelegramBot from 'node-telegram-bot-api';
