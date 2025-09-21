@@ -178,4 +178,57 @@ export class TelegramService {
   }
 }
 
-export default TelegramService;
+/**
+ * Factory wrapper so your `index.ts` can keep calling `setupTelegramService(app)`
+ *
+ * Usage (keeps your existing pattern):
+ * import setupTelegramService from './src/bots/telegramService';
+ * setupTelegramService(app);
+ *
+ * The function will attempt to find a Socket.IO instance on the `app` in common places:
+ * - app.get('io')
+ * - app.locals.io
+ * - (app as any).io
+ *
+ * If no token is supplied via env or config, this will throw.
+ */
+export default function setupTelegramService(
+  app: any,
+  config?: Partial<TelegramServiceConfig>
+): TelegramService {
+  // find io from common app storage patterns
+  const maybeIo: SocketIOServer | undefined =
+    (typeof app?.get === 'function' && app.get('io')) ||
+    (app?.locals && app.locals.io) ||
+    (app && (app as any).io) ||
+    undefined;
+
+  const token = process.env.TELEGRAM_BOT_TOKEN || config?.token || '';
+  if (!token) {
+    throw new Error('TELEGRAM_BOT_TOKEN not set and no token provided in config');
+  }
+
+  const svc = new TelegramService({
+    token,
+    useWebhook: config?.useWebhook ?? false,
+    pollingIntervalMs: config?.pollingIntervalMs ?? 300,
+  });
+
+  if (maybeIo) {
+    try {
+      svc.attachSocketIO(maybeIo);
+      console.log('✅ Attached Socket.IO to TelegramService');
+    } catch (err) {
+      console.warn('Failed to attach Socket.IO to TelegramService', err);
+    }
+  } else {
+    console.warn('No Socket.IO instance found on app — TelegramService will work but webapp will not receive messages via socket.');
+  }
+
+  svc.start().catch((err) => {
+    console.error('Failed to start TelegramService', err);
+  });
+
+  // return the instance in case the caller wants to keep it
+  return svc;
+};
