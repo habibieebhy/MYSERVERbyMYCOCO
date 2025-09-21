@@ -1,57 +1,63 @@
-// bots/aiService.ts
-import { Express, Request, Response } from 'express';
-import fetch from 'node-fetch';
+// src/bots/aiService.ts
+import OpenAI from 'openai';
+import dotenv from 'dotenv';
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+// Load environment variables from your .env file
+dotenv.config();
 
-// --- NEW: Add constants for optional headers from your .env file ---
-const YOUR_SITE_URL = process.env.SITE_URL || "http://localhost:3000"; // Fallback for local dev
-const YOUR_SITE_NAME = process.env.SITE_NAME || "CemTemChat AI";
+// --- CONFIGURATION ---
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+const YOUR_SITE_URL = process.env.YOUR_SITE_URL || 'https://myserverbymycoco.onrender.com';
+const YOUR_SITE_NAME = process.env.YOUR_SITE_NAME || 'My-AI-Service';
 
-export default function setupAiService(app: Express) {
-  if (!OPENROUTER_API_KEY) {
-    console.warn("⚠️ OPENROUTER_API_KEY is not set. The AI service endpoint will not work.");
-    return;
-  }
+// --- VALIDATION ---
+if (!OPENROUTER_API_KEY) {
+    console.error("❌ FATAL ERROR: OPENROUTER_API_KEY is not set in your .env file.");
+    // In a real app, you might throw an error here
+}
 
-  console.log('🤖 Registering AI Service endpoint...');
+// 1. Initialize the OpenAI client to point to OpenRouter
+const openai = new OpenAI({
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey: OPENROUTER_API_KEY,
+    defaultHeaders: {
+        "HTTP-Referer": YOUR_SITE_URL,
+        "X-Title": YOUR_SITE_NAME,
+    },
+});
 
-  app.post('/api/ai/chat', async (req: Request, res: Response) => {
-    const { message } = req.body;
-
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ success: false, error: 'A valid "message" string is required.' });
-    }
-
+/**
+ * A function to execute an AI chat completion request.
+ * @param userMessage The message to send to the AI.
+ * @returns The content of the AI's response message.
+ */
+async function getAICompletion(userMessage: string): Promise<string | null> {
+    console.log(`🤖 Sending request to OpenRouter for: "${userMessage}"`);
     try {
-      const aiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-          // --- UPDATED HEADERS ---
-          "HTTP-Referer": YOUR_SITE_URL, 
-          "X-Title": YOUR_SITE_NAME,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          // --- UPDATED MODEL ---
-          "model": "deepseek/deepseek-chat-v3.1:free",
-          "messages": [{ "role": "user", "content": message }]
-        })
-      });
+        // 2. Create the chat completion request
+        const completion = await openai.chat.completions.create({
+            model: "deepseek/deepseek-chat-v3.1:free",
+            messages: [
+                {
+                    "role": "user",
+                    "content": userMessage
+                }
+            ],
+        });
 
-      if (!aiResponse.ok) {
-        const errorText = await aiResponse.text();
-        console.error("OpenRouter API Error:", errorText);
-        throw new Error(`OpenRouter API responded with status ${aiResponse.status}`);
-      }
-
-      const data: any = await aiResponse.json();
-      res.status(200).json({ success: true, reply: data.choices[0].message.content });
+        // 3. Extract and return the response content
+        const content = completion.choices[0]?.message?.content;
+        console.log("✅ AI Response Received.");
+        return content || null;
 
     } catch (error) {
-      console.error("Error in AI Service:", error);
-      res.status(500).json({ success: false, error: "Failed to get a response from the AI model." });
+        console.error("💥 An error occurred while fetching the AI completion:", error);
+        throw error; // Re-throw the error so the calling function can handle it
     }
-  });
 }
+
+// 4. Export the function and the client for use in other files
+export {
+    getAICompletion,
+    openai
+};

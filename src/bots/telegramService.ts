@@ -1,22 +1,20 @@
 // telegramService.ts
-// Minimal Telegram <-> Webapp bridge using node-telegram-bot-api + socket.io
-// Responsibilities:
-// 1) forward incoming telegram messages to webapp via socket.io: event 'telegram:message'
-// 2) send messages coming from webapp to telegram: listen socket event 'web:sendMessage'
+// UPDATED: Now integrates an AI service for intelligent replies.
 
 import TelegramBot from 'node-telegram-bot-api';
 import { Server as SocketIOServer, Socket } from 'socket.io';
+import { getAICompletion } from './aiService'; // 👈 1. Import the AI service function
 
 export interface TelegramServiceConfig {
   token: string;
-  useWebhook?: boolean; // default false (we'll use polling)
-  pollingIntervalMs?: number; // default 300
+  useWebhook?: boolean;
+  pollingIntervalMs?: number;
 }
 
 export interface WebToTelegramPayload {
-  chatId: number;          // telegram chat id (must be known to webapp)
-  text: string;            // message to send
-  options?: any;           // optional telegram sendMessage options
+  chatId: number;
+  text: string;
+  options?: any;
 }
 
 export interface TelegramIncoming {
@@ -43,19 +41,11 @@ export class TelegramService {
     };
   }
 
-  /**
-   * Attach (or reattach) socket.io server so the service can emit and listen to web events.
-   * Call this from your server where you have created the Socket.IO Server instance.
-   */
   public attachSocketIO(io: SocketIOServer) {
     this.io = io;
     this.setupSocketHandlers();
-    // no return — we keep it intentionally simple
   }
 
-  /**
-   * Start the Telegram bot (polling unless useWebhook true).
-   */
   public async start(): Promise<void> {
     if (this.bot) return;
 
@@ -67,22 +57,19 @@ export class TelegramService {
       }
     });
 
+    // 👈 2. Pass the async version of the handler
     this.bot.on('message', (msg) => this.handleTelegramMessage(msg));
     this.bot.on('polling_error', (err) => console.error('Telegram polling error', err?.message || err));
     this.bot.on('error', (err) => console.error('Telegram bot error', err?.message || err));
 
-    // quick sanity log
     try {
       const me = await this.bot.getMe();
-      console.log(`TelegramService started as @${me.username} (${me.id})`);
+      console.log(`✅ TelegramService started as @${me.username} (${me.id})`);
     } catch (e) {
-      console.warn('TelegramService started but getMe() failed (bot may still work).', e);
+      console.warn('TelegramService started but getMe() failed.', e);
     }
   }
 
-  /**
-   * Stop the bot gracefully.
-   */
   public async stop(): Promise<void> {
     if (!this.bot) return;
     try {
@@ -96,9 +83,6 @@ export class TelegramService {
     }
   }
 
-  /**
-   * Send message to a Telegram chat id.
-   */
   public async sendToTelegram(chatId: number, text: string, options?: any): Promise<void> {
     if (!this.bot) throw new Error('Telegram bot not started');
     try {
@@ -110,45 +94,67 @@ export class TelegramService {
   }
 
   /**
-   * Internal: handle incoming telegram messages and forward to webapp.
+   * Internal: handle incoming telegram messages, get AI reply, and send it back.
+   * Also forwards the original message to the webapp via socket.io.
    */
-  private handleTelegramMessage(msg: TelegramBot.Message) {
-    if (!this.io) {
-      // If no socket server attached, still log. Webapp won't receive messages.
-      console.warn('Telegram message received but socket.io not attached. Dropping message.');
-      return;
+  // 👈 3. The message handler is now async to await the AI response
+  private async handleTelegramMessage(msg: TelegramBot.Message) {
+    const text = (msg.text || msg.caption || '').trim();
+    const chatId = msg.chat.id;
+
+    if (!text) return; // Ignore messages without text
+
+    // --- AI Integration Logic ---
+    // 👈 4. Check if the message is a command; if so, don't send it to the AI
+    if (text.startsWith('/')) {
+        console.log(`🤖 Received command from ${chatId}: "${text}". Bypassing AI.`);
+        if (text.toLowerCase() === '/start') {
+            this.sendToTelegram(chatId, 'Hello! I am an AI assistant powered by OpenRouter. Ask me anything.');
+        }
+        return; // Stop further processing for commands
     }
 
-    // ignore non-text messages for simplicity
-    const text = (msg.text || msg.caption || '').trim();
-    if (!text) return;
+    try {
+        console.log(`🧠 Processing AI request for chat ${chatId}...`);
+        // Let the user know the bot is thinking
+        this.bot?.sendChatAction(chatId, 'typing');
 
-    const incoming: TelegramIncoming = {
-      chatId: msg.chat.id,
-      text,
-      username: (msg.from && (msg.from.username)) || undefined,
-      firstName: msg.from?.first_name,
-      lastName: msg.from?.last_name,
-      raw: msg
-    };
+        // Get the AI's response by calling the imported function
+        const aiReply = await getAICompletion(text);
 
-    // Emit to all connected web clients; webapp can filter by chatId.
-    this.io.emit('telegram:message', incoming);
+        if (aiReply) {
+            // Send the AI's reply back to the user
+            await this.sendToTelegram(chatId, aiReply);
+        } else {
+            await this.sendToTelegram(chatId, "Sorry, I couldn't come up with a response.");
+        }
+
+    } catch (error) {
+        console.error(`💥 Failed to get AI response for chat ${chatId}:`, error);
+        await this.sendToTelegram(chatId, "Sorry, I'm having trouble connecting to my brain right now. Please try again later.");
+    }
+    // --- End of AI Logic ---
+
+    // The original functionality to forward the message to the webapp can remain
+    if (this.io) {
+        const incoming: TelegramIncoming = {
+            chatId: msg.chat.id,
+            text,
+            username: msg.from?.username,
+            firstName: msg.from?.first_name,
+            lastName: msg.from?.last_name,
+            raw: msg
+        };
+        this.io.emit('telegram:message', incoming);
+    }
   }
 
-  /**
-   * Internal: set up minimal socket handlers for send/receive.
-   * - listens for 'web:sendMessage' to route to Telegram
-   * - optional: 'web:subscribe' to register socket for logs (keeps it simple)
-   */
   private setupSocketHandlers() {
     if (!this.io) return;
-
     this.io.on('connection', (socket: Socket) => {
-      console.log(`Socket connected: ${socket.id}`);
+      console.log(`🔌 Socket connected: ${socket.id}`);
       this.socketsSet.add(socket.id);
 
-      // Webapp -> Telegram (required payload: { chatId, text, options? })
       socket.on('web:sendMessage', async (payload: WebToTelegramPayload, ack?: (res: any) => void) => {
         try {
           if (!payload || typeof payload.chatId !== 'number' || !payload.text) {
@@ -156,7 +162,6 @@ export class TelegramService {
             if (ack) ack(err);
             return;
           }
-
           await this.sendToTelegram(payload.chatId, payload.text, payload.options);
           if (ack) ack({ ok: true });
         } catch (err) {
@@ -165,13 +170,12 @@ export class TelegramService {
         }
       });
 
-      // optional helper: web client can ask server whether bot is ready
       socket.on('web:botStatus', (cb?: (res: any) => void) => {
         if (cb) cb({ running: !!this.bot });
       });
 
       socket.on('disconnect', () => {
-        console.log(`Socket disconnected: ${socket.id}`);
+        console.log(`🔌 Socket disconnected: ${socket.id}`);
         this.socketsSet.delete(socket.id);
       });
     });
@@ -179,24 +183,12 @@ export class TelegramService {
 }
 
 /**
- * Factory wrapper so your `index.ts` can keep calling `setupTelegramService(app)`
- *
- * Usage (keeps your existing pattern):
- * import setupTelegramService from './src/bots/telegramService';
- * setupTelegramService(app);
- *
- * The function will attempt to find a Socket.IO instance on the `app` in common places:
- * - app.get('io')
- * - app.locals.io
- * - (app as any).io
- *
- * If no token is supplied via env or config, this will throw.
+ * Factory wrapper to set up the service.
  */
 export default function setupTelegramService(
   app: any,
   config?: Partial<TelegramServiceConfig>
 ): TelegramService {
-  // find io from common app storage patterns
   const maybeIo: SocketIOServer | undefined =
     (typeof app?.get === 'function' && app.get('io')) ||
     (app?.locals && app.locals.io) ||
@@ -208,27 +200,22 @@ export default function setupTelegramService(
     throw new Error('TELEGRAM_BOT_TOKEN not set and no token provided in config');
   }
 
-  const svc = new TelegramService({
-    token,
-    useWebhook: config?.useWebhook ?? false,
-    pollingIntervalMs: config?.pollingIntervalMs ?? 300,
-  });
+  const svc = new TelegramService({ token, ...config });
 
   if (maybeIo) {
     try {
       svc.attachSocketIO(maybeIo);
-      console.log('✅ Attached Socket.IO to TelegramService');
+      console.log('🔗 Attached Socket.IO to TelegramService');
     } catch (err) {
       console.warn('Failed to attach Socket.IO to TelegramService', err);
     }
   } else {
-    console.warn('No Socket.IO instance found on app — TelegramService will work but webapp will not receive messages via socket.');
+    console.warn('No Socket.IO instance found on app — webapp will not receive messages via socket.');
   }
 
   svc.start().catch((err) => {
     console.error('Failed to start TelegramService', err);
   });
 
-  // return the instance in case the caller wants to keep it
   return svc;
 };
