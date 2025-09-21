@@ -74,6 +74,10 @@ import setupDealerScoresPatchRoutes from './src/routes/updateRoutes/dealerReport
 // --- Import GEO TRACKING route setups ---
 import setupGeoTrackingRoutes from './src/routes/geoTrackingRoutes/geoTracking';
 
+// --- TelegramBot + AI Bot setups ---
+import setupAiService from './src/bots/aiService';
+import setupTelegramService from './src/bots/telegramService';
+
 // Initialize environment variables
 
 // ADD THIS DEBUG LINE:
@@ -195,8 +199,10 @@ setupGeoTrackingRoutes(app);
 setupR2Upload(app);
 console.log('✅ All routes registered successfully.');
 
+//------------ TelegramBot + AI setup ----------------
+setupAiService(app);
+setupTelegramService(app);
 
-// --- Error Handling Middleware ---
 
 // Handle 404 - Not Found for any routes not matched above
 app.use((req: Request, res: Response) => {
