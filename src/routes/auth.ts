@@ -2,14 +2,14 @@
 // Authentication endpoints compatible with your existing system
 
 import { Request, Response, Express, NextFunction } from 'express';
-import jwt from 'jsonwebtoken'; // Import jsonwebtoken
+import jwt from 'jsonwebtoken';
 import { db } from '../db/db';
 import { users, companies } from '../db/schema';
 import { eq, or } from 'drizzle-orm';
 
 // --- JWT Configuration ---
 // IMPORTANT: Use a long, random key loaded from environment variables in production.
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || 'a_JWT_SECRET_key_from_env_var';
 
 // Helper function to safely convert BigInt to JSON
 function toJsonSafe(obj: any): any {
