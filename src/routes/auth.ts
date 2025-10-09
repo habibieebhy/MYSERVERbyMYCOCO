@@ -83,7 +83,7 @@ export default function setupAuthRoutes(app: Express) {
       };
 
       // --- 2. Generate the JWT ---
-      const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '1d' }); // Token expires in 1 day
+      const token = jwt.sign(tokenPayload, JWT_SECRET); // Token expires in 1 day
 
       // --- 3. Return the token and the ID (essential for the Flutter app's second step) ---
       return res.json({ 
