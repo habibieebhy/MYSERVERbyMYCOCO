@@ -2,7 +2,7 @@
 // Authentication endpoints compatible with your existing system
 
 import { Request, Response, Express, NextFunction } from 'express';
-import * as jwt from 'jsonwebtoken'; // Import jsonwebtoken
+import jwt from 'jsonwebtoken'; // Import jsonwebtoken
 import { db } from '../db/db';
 import { users, companies } from '../db/schema';
 import { eq, or } from 'drizzle-orm';
@@ -83,7 +83,7 @@ export default function setupAuthRoutes(app: Express) {
       };
 
       // --- 2. Generate the JWT ---
-      const token = jwt.sign(tokenPayload, JWT_SECRET); // Token expires in 1 day
+      const token = jwt.sign(tokenPayload, JWT_SECRET);
 
       // --- 3. Return the token and the ID (essential for the Flutter app's second step) ---
       return res.json({ 
