@@ -1,10 +1,15 @@
-// server/src/routes/auth.ts 
+// server/src/routes/auth.ts
 // Authentication endpoints compatible with your existing system
 
-import { Request, Response, Express } from 'express';
+import { Request, Response, Express, NextFunction } from 'express';
+import * as jwt from 'jsonwebtoken'; // Import jsonwebtoken
 import { db } from '../db/db';
 import { users, companies } from '../db/schema';
 import { eq, or } from 'drizzle-orm';
+
+// --- JWT Configuration ---
+// IMPORTANT: Use a long, random key loaded from environment variables in production.
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Helper function to safely convert BigInt to JSON
 function toJsonSafe(obj: any): any {
@@ -13,27 +18,49 @@ function toJsonSafe(obj: any): any {
   ));
 }
 
+// Middleware to verify JWT and attach user info to request (needed for profile endpoint)
+const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Expects: 'Bearer TOKEN'
+
+    if (token == null) return res.status(401).json({ error: "Access denied. Token missing." });
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            // Token is invalid or expired
+            console.error("JWT Verification Error:", err.message);
+            return res.status(403).json({ error: "Token is invalid or expired." });
+        }
+        
+        // Attach decoded payload to request
+        (req as any).user = user; 
+        next();
+    });
+};
+
+
 export default function setupAuthRoutes(app: Express) {
   
-  // Login endpoint - matches your existing design
+  // Login endpoint - now returns a JWT on successful login
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     try {
       const loginId = String(req.body?.loginId ?? "").trim();
       const password = String(req.body?.password ?? "");
 
       if (!loginId || !password)
-        return res.status(400).json({ error: "Login ID and password are required bitch" });
+        return res.status(400).json({ error: "Login ID and password are required" });
 
-      // Pull exactly what you need
+      // Pull exactly what you need for verification and token payload
       const [row] = await db
         .select({
           id: users.id,
           email: users.email,
           status: users.status,
           hashedPassword: users.hashedPassword,
+          role: users.role, // Include role for the token payload
           salesmanLoginId: users.salesmanLoginId,
           companyId: users.companyId,
-          companyName: companies.companyName, // optional
+          companyName: companies.companyName,
         })
         .from(users)
         .leftJoin(companies, eq(users.companyId, companies.id))
@@ -47,21 +74,45 @@ export default function setupAuthRoutes(app: Express) {
       if (!row.hashedPassword || row.hashedPassword !== password)
         return res.status(401).json({ error: "Invalid credentials" });
 
-      const { hashedPassword, ...safe } = row;
-      return res.json({ success: true, user: toJsonSafe(safe), message: "Login successful bitch" });
+      // --- 1. Define Token Payload ---
+      const tokenPayload = {
+        id: toJsonSafe(row.id),
+        email: row.email,
+        role: row.role,
+        companyId: toJsonSafe(row.companyId),
+      };
+
+      // --- 2. Generate the JWT ---
+      const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '1d' }); // Token expires in 1 day
+
+      // --- 3. Return the token and the ID (essential for the Flutter app's second step) ---
+      return res.json({ 
+        token: token, 
+        userId: toJsonSafe(row.id),
+        // Optionally, return the initial company name if needed for display
+        companyName: row.companyName || '',
+        message: "Login successful" 
+      });
+
     } catch (err) {
       console.error("Login error:", err);
       return res.status(500).json({ error: "Login failed" });
     }
   });
 
-  // User profile endpoint - matches your existing design
-  app.get("/api/user/:id", async (req: Request, res: Response) => {
+  // User profile endpoint - NOW PROTECTED BY JWT MIDDLEWARE
+  app.get("/api/users/:id", authenticateToken, async (req: Request, res: Response) => {
     try {
       const userId = Number(req.params.id);
       if (!userId || Number.isNaN(userId)) {
         return res.status(400).json({ error: "Invalid user id" });
       }
+      
+      // OPTIONAL SECURITY CHECK: Ensure the token's user ID matches the requested ID
+      if (String((req as any).user.id) !== String(userId)) {
+           return res.status(403).json({ error: "Unauthorized access to another user's profile." });
+      }
+
 
       // Manual join
       const rows = await db
@@ -107,7 +158,8 @@ export default function setupAuthRoutes(app: Express) {
           : null,
       };
 
-      res.json({ user: toJsonSafe(user) });
+      // Note: The frontend is expecting a 'data' key for the full profile response
+      res.json({ data: toJsonSafe(user) }); 
     } catch (err) {
       console.error("GET /api/user error:", err);
       res.status(500).json({ error: "Failed to load user" });
