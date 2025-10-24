@@ -8,7 +8,10 @@ var __export = (target, all) => {
 import express from "express";
 import cors from "cors";
 import path from "path";
-import dotenv from "dotenv";
+import dotenv2 from "dotenv";
+
+// src/routes/auth.ts
+import jwt from "jsonwebtoken";
 
 // src/db/db.ts
 import { Pool, neonConfig } from "@neondatabase/serverless";
@@ -535,45 +538,75 @@ if (process.env.NODE_ENV !== "production") {
 
 // src/routes/auth.ts
 import { eq, or } from "drizzle-orm";
+var JWT_SECRET = process.env.JWT_SECRET || "a_JWT_SECRET_key_from_env_var";
 function toJsonSafe(obj) {
   return JSON.parse(JSON.stringify(
     obj,
     (_, value) => typeof value === "bigint" ? Number(value) : value
   ));
 }
+var authenticateToken = (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+  if (token == null) return res.status(401).json({ error: "Access denied. Token missing." });
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      console.error("JWT Verification Error:", err.message);
+      return res.status(403).json({ error: "Token is invalid or expired." });
+    }
+    req.user = user;
+    next();
+  });
+};
 function setupAuthRoutes(app2) {
   app2.post("/api/auth/login", async (req, res) => {
     try {
       const loginId = String(req.body?.loginId ?? "").trim();
       const password = String(req.body?.password ?? "");
       if (!loginId || !password)
-        return res.status(400).json({ error: "Login ID and password are required bitch" });
+        return res.status(400).json({ error: "Login ID and password are required" });
       const [row] = await db.select({
         id: users.id,
         email: users.email,
         status: users.status,
         hashedPassword: users.hashedPassword,
+        role: users.role,
+        // Include role for the token payload
         salesmanLoginId: users.salesmanLoginId,
         companyId: users.companyId,
         companyName: companies.companyName
-        // optional
       }).from(users).leftJoin(companies, eq(users.companyId, companies.id)).where(or(eq(users.salesmanLoginId, loginId), eq(users.email, loginId))).limit(1);
       if (!row) return res.status(401).json({ error: "Invalid credentials" });
       if (row.status !== "active") return res.status(401).json({ error: "Account is not active" });
       if (!row.hashedPassword || row.hashedPassword !== password)
         return res.status(401).json({ error: "Invalid credentials" });
-      const { hashedPassword, ...safe } = row;
-      return res.json({ success: true, user: toJsonSafe(safe), message: "Login successful bitch" });
+      const tokenPayload = {
+        id: toJsonSafe(row.id),
+        email: row.email,
+        role: row.role,
+        companyId: toJsonSafe(row.companyId)
+      };
+      const token = jwt.sign(tokenPayload, JWT_SECRET);
+      return res.json({
+        token,
+        userId: toJsonSafe(row.id),
+        // Optionally, return the initial company name if needed for display
+        companyName: row.companyName || "",
+        message: "Login successful"
+      });
     } catch (err) {
       console.error("Login error:", err);
       return res.status(500).json({ error: "Login failed" });
     }
   });
-  app2.get("/api/user/:id", async (req, res) => {
+  app2.get("/api/users/:id", authenticateToken, async (req, res) => {
     try {
       const userId = Number(req.params.id);
       if (!userId || Number.isNaN(userId)) {
         return res.status(400).json({ error: "Invalid user id" });
+      }
+      if (String(req.user.id) !== String(userId)) {
+        return res.status(403).json({ error: "Unauthorized access to another user's profile." });
       }
       const rows = await db.select({
         id: users.id,
@@ -608,7 +641,7 @@ function setupAuthRoutes(app2) {
         reportsToId: row.reportsToId ?? null,
         company: row.companyId ? { id: row.companyId, companyName: row.companyName ?? "" } : null
       };
-      res.json({ user: toJsonSafe(user) });
+      res.json({ data: toJsonSafe(user) });
     } catch (err) {
       console.error("GET /api/user error:", err);
       res.status(500).json({ error: "Failed to load user" });
@@ -7169,8 +7202,206 @@ function setupGeoTrackingRoutes(app2) {
   console.log("\u2705 Geo-Tracking GET, POST, and PATCH endpoints setup complete");
 }
 
+// src/bots/aiService.ts
+import OpenAI from "openai";
+import dotenv from "dotenv";
+dotenv.config();
+var openai = null;
+var systemPrompt = "You are a helpful and friendly AI assistant. Your name is CemTemChat AI. Keep your responses concise, friendly, and easy to understand. Do not mention that you are an AI unless it is directly relevant to the conversation.";
+async function getAICompletion(userMessage) {
+  if (!openai) {
+    throw new Error("AI service not initialized. Did you forget to call setupAiService(app)?");
+  }
+  console.log(`\u{1F916} Sending request to OpenRouter for: "${userMessage}"`);
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "deepseek/deepseek-chat-v3.1:free",
+      // 👉 2. SEND THE PROMPT WITH THE MESSAGE
+      // The 'messages' array now includes the system prompt before the user's message.
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage }
+      ]
+    });
+    const content = completion.choices[0]?.message?.content;
+    console.log("\u2705 AI Response Received.");
+    return content || null;
+  } catch (error) {
+    console.error("\u{1F4A5} An error occurred while fetching the AI completion:", error);
+    throw error;
+  }
+}
+function setupAiService(app2) {
+  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+  const YOUR_SITE_URL = process.env.YOUR_SITE_URL || "https://myserverbymycoco.onrender.com";
+  const YOUR_SITE_NAME = process.env.YOUR_SITE_NAME || "My-AI-Service";
+  if (!OPENROUTER_API_KEY) {
+    console.error("\u274C FATAL ERROR: OPENROUTER_API_KEY is not set in your .env file.");
+    throw new Error("OPENROUTER_API_KEY missing");
+  }
+  if (!openai) {
+    openai = new OpenAI({
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: OPENROUTER_API_KEY,
+      defaultHeaders: {
+        "HTTP-Referer": YOUR_SITE_URL,
+        "X-Title": YOUR_SITE_NAME
+      }
+    });
+    console.log("\u2705 OpenAI client initialized via OpenRouter");
+  }
+  if (app2) {
+    app2.locals = app2.locals || {};
+    app2.locals.openai = openai;
+    app2.locals.getAICompletion = getAICompletion;
+  }
+  return { openai, getAICompletion };
+}
+
+// src/bots/telegramService.ts
+import TelegramBot from "node-telegram-bot-api";
+var TelegramService = class {
+  constructor(config) {
+    this.bot = null;
+    this.io = null;
+    this.socketsSet = /* @__PURE__ */ new Set();
+    if (!config.token) throw new Error("Telegram token required");
+    this.config = {
+      useWebhook: false,
+      pollingIntervalMs: 300,
+      ...config
+    };
+  }
+  attachSocketIO(io) {
+    this.io = io;
+    this.setupSocketHandlers();
+  }
+  async start() {
+    if (this.bot) return;
+    this.bot = new TelegramBot(this.config.token, {
+      polling: this.config.useWebhook ? false : {
+        interval: this.config.pollingIntervalMs,
+        autoStart: true,
+        params: { timeout: 10 }
+      }
+    });
+    this.bot.on("message", (msg) => this.handleTelegramMessage(msg));
+    this.bot.on("polling_error", (err) => console.error("Telegram polling error", err?.message || err));
+    this.bot.on("error", (err) => console.error("Telegram bot error", err?.message || err));
+    try {
+      const me = await this.bot.getMe();
+      console.log(`\u2705 TelegramService started as @${me.username} (${me.id})`);
+    } catch (e) {
+      console.warn("TelegramService started but getMe() failed.", e);
+    }
+  }
+  async stop() {
+    if (!this.bot) return;
+    try {
+      if (this.bot.isPolling && this.bot.isPolling()) {
+        await this.bot.stopPolling();
+      }
+    } catch (e) {
+      console.error("Error while stopping Telegram bot", e);
+    } finally {
+      this.bot = null;
+    }
+  }
+  async sendToTelegram(chatId, text2, options) {
+    if (!this.bot) throw new Error("Telegram bot not started");
+    try {
+      await this.bot.sendMessage(chatId, text2, options);
+    } catch (err) {
+      console.error(`Failed to send message to ${chatId}`, err);
+      throw err;
+    }
+  }
+  /**
+   * Internal: handle incoming telegram messages, get AI reply, and send it back.
+   * Also forwards the original message to the webapp via socket.io.
+   */
+  // 👈 3. The message handler is now async to await the AI response
+  async handleTelegramMessage(msg) {
+    const text2 = (msg.text || msg.caption || "").trim();
+    const chatId = msg.chat.id;
+    if (!text2) {
+      return;
+    }
+    if (text2.toLowerCase() === "/start") {
+      this.sendToTelegram(
+        chatId,
+        "Hello! I am an AI assistant powered by OpenRouter. Ask me anything."
+      );
+      return;
+    }
+    try {
+      console.log(`\u{1F9E0} Processing AI request for chat ${chatId}: "${text2}"`);
+      this.bot?.sendChatAction(chatId, "typing");
+      const aiReply = await getAICompletion(text2);
+      if (aiReply) {
+        await this.sendToTelegram(chatId, aiReply);
+      } else {
+        await this.sendToTelegram(chatId, "Sorry, I couldn't come up with a response.");
+      }
+    } catch (error) {
+      console.error(`\u{1F4A5} Failed to get AI response for chat ${chatId}:`, error);
+      await this.sendToTelegram(chatId, "Sorry, I'm having trouble connecting to my brain right now. Please try again later.");
+    }
+  }
+  setupSocketHandlers() {
+    if (!this.io) return;
+    this.io.on("connection", (socket) => {
+      console.log(`\u{1F50C} Socket connected: ${socket.id}`);
+      this.socketsSet.add(socket.id);
+      socket.on("web:sendMessage", async (payload, ack) => {
+        try {
+          if (!payload || typeof payload.chatId !== "number" || !payload.text) {
+            const err = { ok: false, error: "invalid_payload" };
+            if (ack) ack(err);
+            return;
+          }
+          await this.sendToTelegram(payload.chatId, payload.text, payload.options);
+          if (ack) ack({ ok: true });
+        } catch (err) {
+          console.error("Error sending message from web to telegram", err);
+          if (ack) ack({ ok: false, error: err?.message || "send_failed" });
+        }
+      });
+      socket.on("web:botStatus", (cb) => {
+        if (cb) cb({ running: !!this.bot });
+      });
+      socket.on("disconnect", () => {
+        console.log(`\u{1F50C} Socket disconnected: ${socket.id}`);
+        this.socketsSet.delete(socket.id);
+      });
+    });
+  }
+};
+function setupTelegramService(app2, config) {
+  const maybeIo = typeof app2?.get === "function" && app2.get("io") || app2?.locals && app2.locals.io || app2 && app2.io || void 0;
+  const token = process.env.TELEGRAM_BOT_TOKEN || config?.token || "";
+  if (!token) {
+    throw new Error("TELEGRAM_BOT_TOKEN not set and no token provided in config");
+  }
+  const svc = new TelegramService({ token, ...config });
+  if (maybeIo) {
+    try {
+      svc.attachSocketIO(maybeIo);
+      console.log("\u{1F517} Attached Socket.IO to TelegramService");
+    } catch (err) {
+      console.warn("Failed to attach Socket.IO to TelegramService", err);
+    }
+  } else {
+    console.warn("No Socket.IO instance found on app \u2014 webapp will not receive messages via socket.");
+  }
+  svc.start().catch((err) => {
+    console.error("Failed to start TelegramService", err);
+  });
+  return svc;
+}
+
 // index.ts
-dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+dotenv2.config({ path: path.resolve(process.cwd(), ".env") });
 console.log("DATABASE_URL loaded:", process.env.DATABASE_URL ? "YES" : "NO");
 console.log("DATABASE_URL length:", process.env.DATABASE_URL?.length || 0);
 var app = express();
@@ -7252,6 +7483,8 @@ setupPjpPatchRoutes(app);
 setupGeoTrackingRoutes(app);
 setupR2Upload(app);
 console.log("\u2705 All routes registered successfully.");
+setupAiService(app);
+setupTelegramService(app);
 app.use((req, res) => {
   res.status(404).json({ success: false, error: "Resource not found" });
 });

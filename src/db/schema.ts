@@ -150,8 +150,69 @@ export const dealers = pgTable("dealers", {
   brandSelling: text("brand_selling").array().notNull(),
   feedbacks: varchar("feedbacks", { length: 500 }).notNull(),
   remarks: varchar("remarks", { length: 500 }),
+  // Verification Status
+  verificationStatus: varchar("verification_status", { length: 50 }).notNull().default("PENDING"),
+
+  // Contact & Business Info
+  whatsappNo: varchar("whatsapp_no", { length: 20 }),
+  emailId: varchar("email_id", { length: 255 }),
+  businessType: varchar("business_type", { length: 100 }),
+
+  // Statutory IDs
+  gstinNo: varchar("gstin_no", { length: 20 }),
+  panNo: varchar("pan_no", { length: 20 }),
+  tradeLicNo: varchar("trade_lic_no", { length: 150 }),
+  aadharNo: varchar("aadhar_no", { length: 20 }),
+
+  // Godown Details
+  godownSizeSqFt: integer("godown_size_sqft"),
+  godownCapacityMTBags: varchar("godown_capacity_mt_bags", { length: 255 }), 
+  godownAddressLine: varchar("godown_address_line", { length: 500 }),
+  godownLandMark: varchar("godown_landmark", { length: 255 }),
+  godownDistrict: varchar("godown_district", { length: 100 }),
+  godownArea: varchar("godown_area", { length: 255 }),
+  godownRegion: varchar("godown_region", { length: 100 }),
+  godownPinCode: varchar("godown_pincode", { length: 20 }),
+
+  // Residential Address Details
+  residentialAddressLine: varchar("residential_address_line", { length: 500 }),
+  residentialLandMark: varchar("residential_landmark", { length: 255 }),
+  residentialDistrict: varchar("residential_district", { length: 100 }),
+  residentialArea: varchar("residential_area", { length: 255 }),
+  residentialRegion: varchar("residential_region", { length: 100 }),
+  residentialPinCode: varchar("residential_pincode", { length: 20 }),
+
+  // Bank Details
+  bankAccountName: varchar("bank_account_name", { length: 255 }),
+  bankName: varchar("bank_name", { length: 255 }),
+  bankBranchAddress: varchar("bank_branch_address", { length: 500 }),
+  bankAccountNumber: varchar("bank_account_number", { length: 50 }),
+  bankIfscCode: varchar("bank_ifsc_code", { length: 50 }),
+
+  // Sales & Promoter Details
+  brandName: varchar("brand_name", { length: 255 }),
+  monthlySaleMT: numeric("monthly_sale_mt", { precision: 10, scale: 2 }),
+  noOfDealers: integer("no_of_dealers"),
+  areaCovered: varchar("area_covered", { length: 255 }),
+  projectedMonthlySalesBestCementMT: numeric("projected_monthly_sales_best_cement_mt", { precision: 10, scale: 2 }),
+  noOfEmployeesInSales: integer("no_of_employees_in_sales"),
+
+  // Declaration
+  declarationName: varchar("declaration_name", { length: 255 }),
+  declarationPlace: varchar("declaration_place", { length: 100 }),
+  declarationDate: date("declaration_date"),
+
+  // Document/Image URLs
+  tradeLicencePicUrl: varchar("trade_licence_pic_url", { length: 500 }),
+  shopPicUrl: varchar("shop_pic_url", { length: 500 }),
+  dealerPicUrl: varchar("dealer_pic_url", { length: 500 }),
+  blankChequePicUrl: varchar("blank_cheque_pic_url", { length: 500 }),
+  partnershipDeedPicUrl: varchar("partnership_deed_pic_url", { length: 500 }),
+
+  // Timestamp Fields
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+  // Added $onUpdate() to match Prisma's @updatedAt behavior
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull().$onUpdate(() => new Date()), 
 }, (t) => [
   index("idx_dealers_user_id").on(t.userId),
   index("idx_dealers_parent_dealer_id").on(t.parentDealerId),

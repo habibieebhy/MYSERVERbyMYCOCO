@@ -20,7 +20,7 @@ function createAutoCRUD(app: Express, config: {
   // GET ALL - with optional filtering
   app.get(`/api/${endpoint}`, async (req: Request, res: Response) => {
     try {
-      const { limit = '50', region, area, type, userId, ...filters } = req.query;
+      const { limit = '50', region, area, type, userId, verificationStatus, ...filters } = req.query;
 
       let whereCondition: any = undefined;
 
@@ -50,6 +50,12 @@ function createAutoCRUD(app: Express, config: {
         whereCondition = whereCondition 
           ? and(whereCondition, eq(table.userId, parseInt(userId as string)))
           : eq(table.userId, parseInt(userId as string));
+      }
+
+      if (verificationStatus) {
+        whereCondition = whereCondition 
+          ? and(whereCondition, eq(table.verificationStatus, verificationStatus as string))
+          : eq(table.verificationStatus, verificationStatus as string);
       }
 
       let query = db.select().from(table);
