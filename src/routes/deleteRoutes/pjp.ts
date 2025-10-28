@@ -1,253 +1,255 @@
-//  server/src/routes/deleteRoutes/pjp.ts 
-// Permanent Journey Plans DELETE endpoints using createAutoCRUD pattern
-
+// server/src/routes/deleteRoutes/pjp.ts
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
-import { permanentJourneyPlans, insertPermanentJourneyPlanSchema } from '../../db/schema';
-import { eq, and, desc, gte, lte } from 'drizzle-orm';
+import { permanentJourneyPlans, insertPermanentJourneyPlanSchema, masterConnectedTable } from '../../db/schema';
+import { eq, and, gte, lte, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
+
+// ---- FIXED: Neon-safe check for master_connected_table ----
+async function mctExists(tx: any) {
+  const result = await tx.execute(sql`
+    SELECT 1 
+    FROM information_schema.tables 
+    WHERE table_schema = 'public' 
+      AND table_name = 'master_connected_table'
+  `);
+
+  const rows = Array.isArray(result) ? result : result?.rows || [];
+  return rows.length > 0;
+}
 
 function createAutoCRUD(app: Express, config: {
   endpoint: string,
-  table: any,
+  table: typeof permanentJourneyPlans,
   schema: z.ZodSchema,
   tableName: string,
-  autoFields?: { [key: string]: () => any },
-  dateField?: string
+  dateField?: 'planDate'
 }) {
-  const { endpoint, table, schema, tableName, autoFields = {}, dateField } = config;
+  const { endpoint, table, tableName, dateField } = config;
 
-  // DELETE BY ID
-  app.delete(`/api/${endpoint}/:id`, async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
+  const deleteByIds = async (ids: string[]) => {
+    if (ids.length === 0) return { deleted: 0, mctDeleted: 0, mctSkipped: false };
 
-      // Check if record exists
-      const [existingRecord] = await db.select().from(table).where(eq(table.id, id)).limit(1);
-      
-      if (!existingRecord) {
-        return res.status(404).json({
-          success: false,
-          error: `${tableName} not found`
-        });
+    return await db.transaction(async (tx) => {
+      let mctDeleted = 0;
+      let mctSkipped = false;
+
+      // ✅ Clean MCT only if exists
+      if (await mctExists(tx)) {
+        const mctRes = await tx
+          .delete(masterConnectedTable)
+          .where(inArray(masterConnectedTable.permanentJourneyPlanId, ids))
+          .returning({ id: masterConnectedTable.id });
+
+        mctDeleted = mctRes.length;
+      } else {
+        mctSkipped = true;
       }
 
-      // Delete the record
-      await db.delete(table).where(eq(table.id, id));
+      const pjpRes = await tx
+        .delete(permanentJourneyPlans)
+        .where(inArray(permanentJourneyPlans.id, ids))
+        .returning({ id: permanentJourneyPlans.id });
 
-      res.json({ 
-        success: true, 
-        message: `${tableName} deleted successfully`,
-        deletedId: id
+      return { deleted: pjpRes.length, mctDeleted, mctSkipped };
+    });
+  };
+
+  // DELETE /api/pjp/:id?confirm=true
+  app.delete(`/api/${endpoint}/:id`, async (req: Request, res: Response) => {
+    try {
+      if (req.query.confirm !== 'true') {
+        return res.status(400).json({ success: false, error: 'Confirmation required. Add ?confirm=true' });
+      }
+
+      const { id } = req.params;
+
+      const [exists] = await db
+        .select({ id: table.id })
+        .from(table)
+        .where(eq(table.id, id))
+        .limit(1);
+
+      if (!exists) {
+        return res.status(404).json({ success: false, error: `${tableName} not found` });
+      }
+
+      const { deleted, mctDeleted, mctSkipped } = await deleteByIds([id]);
+
+      return res.json({
+        success: true,
+        message: `${tableName} deleted`,
+        deletedCount: deleted,
+        mctCleaned: mctDeleted,
+        mctSkipped,
+        deletedIds: [id],
       });
     } catch (error) {
       console.error(`Delete ${tableName} error:`, error);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: `Failed to delete ${tableName}`,
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: (error as Error)?.message ?? 'Unknown error',
       });
     }
   });
 
-  // DELETE BY User ID
+  // DELETE /api/pjp/user/:userId?confirm=true
   app.delete(`/api/${endpoint}/user/:userId`, async (req: Request, res: Response) => {
     try {
-      const { userId } = req.params;
-      const { confirm } = req.query;
-
-      if (confirm !== 'true') {
-        return res.status(400).json({
-          success: false,
-          error: 'This action requires confirmation. Add ?confirm=true to proceed.'
-        });
+      if (req.query.confirm !== 'true') {
+        return res.status(400).json({ success: false, error: 'This action requires confirmation. Add ?confirm=true' });
       }
 
-      // Get count of records to be deleted
-      const recordsToDelete = await db.select().from(table).where(eq(table.userId, parseInt(userId)));
-      
-      if (recordsToDelete.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: `No ${tableName}s found for user ${userId}`
-        });
+      const userId = Number(req.params.userId);
+      const rows = await db.select({ id: table.id }).from(table).where(eq(table.userId, userId));
+
+      if (rows.length === 0) {
+        return res.status(404).json({ success: false, error: `No ${tableName}s found for user ${userId}` });
       }
 
-      // Delete all records for this user
-      await db.delete(table).where(eq(table.userId, parseInt(userId)));
+      const ids = rows.map(r => r.id);
+      const { deleted, mctDeleted, mctSkipped } = await deleteByIds(ids);
 
-      res.json({ 
-        success: true, 
-        message: `${recordsToDelete.length} ${tableName}(s) deleted successfully for user ${userId}`,
-        deletedCount: recordsToDelete.length
+      return res.json({
+        success: true,
+        message: `${deleted} ${tableName}(s) deleted for user ${userId}`,
+        deletedCount: deleted,
+        mctCleaned: mctDeleted,
+        mctSkipped,
+        deletedIds: ids,
       });
     } catch (error) {
       console.error(`Delete ${tableName}s by User error:`, error);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: `Failed to delete ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: (error instanceof Error ? error.message : 'Unknown error'),
       });
     }
   });
 
-  // DELETE BY Created By ID
+  // DELETE /api/pjp/created-by/:createdById?confirm=true
   app.delete(`/api/${endpoint}/created-by/:createdById`, async (req: Request, res: Response) => {
     try {
-      const { createdById } = req.params;
-      const { confirm } = req.query;
-
-      if (confirm !== 'true') {
-        return res.status(400).json({
-          success: false,
-          error: 'This action requires confirmation. Add ?confirm=true to proceed.'
-        });
+      if (req.query.confirm !== 'true') {
+        return res.status(400).json({ success: false, error: 'This action requires confirmation. Add ?confirm=true' });
       }
 
-      // Get count of records to be deleted
-      const recordsToDelete = await db.select().from(table).where(eq(table.createdById, parseInt(createdById)));
-      
-      if (recordsToDelete.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: `No ${tableName}s found created by user ${createdById}`
-        });
+      const createdById = Number(req.params.createdById);
+      const rows = await db.select({ id: table.id }).from(table).where(eq(table.createdById, createdById));
+
+      if (rows.length === 0) {
+        return res.status(404).json({ success: false, error: `No ${tableName}s found created by user ${createdById}` });
       }
 
-      // Delete all records created by this user
-      await db.delete(table).where(eq(table.createdById, parseInt(createdById)));
+      const ids = rows.map(r => r.id);
+      const { deleted, mctDeleted, mctSkipped } = await deleteByIds(ids);
 
-      res.json({ 
-        success: true, 
-        message: `${recordsToDelete.length} ${tableName}(s) deleted successfully created by user ${createdById}`,
-        deletedCount: recordsToDelete.length
+      return res.json({
+        success: true,
+        message: `${deleted} ${tableName}(s) deleted created by user ${createdById}`,
+        deletedCount: deleted,
+        mctCleaned: mctDeleted,
+        mctSkipped,
+        deletedIds: ids,
       });
     } catch (error) {
       console.error(`Delete ${tableName}s by Created By error:`, error);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: `Failed to delete ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: (error instanceof Error ? error.message : 'Unknown error'),
       });
     }
   });
 
-  // DELETE BY Status
+  // DELETE /api/pjp/status/:status?confirm=true
   app.delete(`/api/${endpoint}/status/:status`, async (req: Request, res: Response) => {
     try {
+      if (req.query.confirm !== 'true') {
+        return res.status(400).json({ success: false, error: 'This action requires confirmation. Add ?confirm=true' });
+      }
+
       const { status } = req.params;
-      const { confirm } = req.query;
+      const rows = await db.select({ id: table.id }).from(table).where(eq(table.status, status));
 
-      if (confirm !== 'true') {
-        return res.status(400).json({
-          success: false,
-          error: 'This action requires confirmation. Add ?confirm=true to proceed.'
-        });
+      if (rows.length === 0) {
+        return res.status(404).json({ success: false, error: `No ${tableName}s found with status ${status}` });
       }
 
-      // Get count of records to be deleted
-      const recordsToDelete = await db.select().from(table).where(eq(table.status, status));
-      
-      if (recordsToDelete.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: `No ${tableName}s found with status ${status}`
-        });
-      }
+      const ids = rows.map(r => r.id);
+      const { deleted, mctDeleted, mctSkipped } = await deleteByIds(ids);
 
-      // Delete all records with this status
-      await db.delete(table).where(eq(table.status, status));
-
-      res.json({ 
-        success: true, 
-        message: `${recordsToDelete.length} ${tableName}(s) deleted successfully with status ${status}`,
-        deletedCount: recordsToDelete.length
+      return res.json({
+        success: true,
+        message: `${deleted} ${tableName}(s) deleted with status ${status}`,
+        deletedCount: deleted,
+        mctCleaned: mctDeleted,
+        mctSkipped,
+        deletedIds: ids,
       });
     } catch (error) {
       console.error(`Delete ${tableName}s by Status error:`, error);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: `Failed to delete ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: (error as Error)?.message ?? 'Unknown error',
       });
     }
   });
 
-  // BULK DELETE BY DATE RANGE
+  // DELETE /api/pjp/bulk/date-range
   app.delete(`/api/${endpoint}/bulk/date-range`, async (req: Request, res: Response) => {
     try {
       const { startDate, endDate, confirm } = req.query;
+      if (!startDate || !endDate)
+        return res.status(400).json({ success: false, error: 'startDate and endDate parameters are required' });
+      if (confirm !== 'true')
+        return res.status(400).json({ success: false, error: 'This action requires confirmation. Add ?confirm=true' });
+      if (!dateField)
+        return res.status(400).json({ success: false, error: `Date field not available for ${tableName}` });
 
-      if (!startDate || !endDate) {
-        return res.status(400).json({
-          success: false,
-          error: 'startDate and endDate parameters are required'
-        });
-      }
+      const rows = await db
+        .select({ id: table.id })
+        .from(table)
+        .where(and(
+          gte(table[dateField], String(startDate)),
+          lte(table[dateField], String(endDate))
+        ));
 
-      if (confirm !== 'true') {
-        return res.status(400).json({
-          success: false,
-          error: 'This action requires confirmation. Add ?confirm=true to proceed.'
-        });
-      }
+      if (rows.length === 0)
+        return res.status(404).json({ success: false, error: `No ${tableName}s found in date range` });
 
-      if (!dateField || !table[dateField]) {
-        return res.status(400).json({
-          success: false,
-          error: `Date field not available for ${tableName}`
-        });
-      }
+      const ids = rows.map(r => r.id);
+      const { deleted, mctDeleted, mctSkipped } = await deleteByIds(ids);
 
-      const whereCondition = and(
-        gte(table[dateField], startDate as string),
-        lte(table[dateField], endDate as string)
-      );
-
-      // Get count of records to be deleted
-      const recordsToDelete = await db.select().from(table).where(whereCondition);
-      
-      if (recordsToDelete.length === 0) {
-        return res.status(404).json({
-          success: false,
-          error: `No ${tableName}s found in the specified date range`
-        });
-      }
-
-      // Delete records in date range
-      await db.delete(table).where(whereCondition);
-
-      res.json({ 
-        success: true, 
-        message: `${recordsToDelete.length} ${tableName}(s) deleted successfully from date range ${startDate} to ${endDate}`,
-        deletedCount: recordsToDelete.length
+      return res.json({
+        success: true,
+        message: `${deleted} ${tableName}(s) deleted from ${startDate} to ${endDate}`,
+        deletedCount: deleted,
+        mctCleaned: mctDeleted,
+        mctSkipped,
+        deletedIds: ids,
       });
     } catch (error) {
       console.error(`Bulk delete ${tableName}s error:`, error);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: `Failed to bulk delete ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: (error as Error)?.message ?? 'Unknown error',
       });
     }
   });
-
 }
 
-// Function call in the same file
 export default function setupPermanentJourneyPlansDeleteRoutes(app: Express) {
-  // Permanent Journey Plans DELETE endpoints
   createAutoCRUD(app, {
     endpoint: 'pjp',
     table: permanentJourneyPlans,
     schema: insertPermanentJourneyPlanSchema,
     tableName: 'Permanent Journey Plan',
     dateField: 'planDate',
-    autoFields: {
-      createdAt: () => new Date().toISOString(),
-      updatedAt: () => new Date().toISOString()
-    }
   });
-  
   console.log('✅ Permanent Journey Plans DELETE endpoints setup complete');
 }

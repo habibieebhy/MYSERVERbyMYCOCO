@@ -1,12 +1,12 @@
 // server/src/db/schema.ts
 import {
-  pgTable, serial, integer, varchar, text, boolean, timestamp, date, numeric, uuid,
+  pgTable, serial, integer, varchar, text, boolean, timestamp, date, numeric,
   uniqueIndex, index
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 
-// ------------------------- companies -------------------------
+/* ========================= companies ========================= */
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
   companyName: varchar("company_name", { length: 255 }).notNull(),
@@ -23,11 +23,13 @@ export const companies = pgTable("companies", {
   index("idx_admin_user_id").on(t.adminUserId),
 ]);
 
-// ------------------------- users -------------------------
+/* ========================= users ========================= */
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   workosUserId: varchar("workos_user_id", { length: 255 }).unique(),
-  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "no action", onUpdate: "no action" }),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "no action", onUpdate: "no action" }),
   email: varchar("email", { length: 255 }).notNull(),
   firstName: varchar("first_name", { length: 255 }),
   lastName: varchar("last_name", { length: 255 }),
@@ -39,27 +41,32 @@ export const users = pgTable("users", {
   status: varchar("status", { length: 50 }).notNull().default("active"),
   region: varchar("region", { length: 255 }),
   area: varchar("area", { length: 255 }),
+
+  // Salesman app login fields
   salesmanLoginId: varchar("salesman_login_id", { length: 255 }).unique(),
   hashedPassword: text("hashed_password"),
-  reportsToId: integer("reports_to_id").references((): any => users.id, { onDelete: "set null" }), // ← Add `: any` here
+
+  // Hierarchy
+  // Drizzle needs this slightly loose typing for self-ref
+  reportsToId: integer("reports_to_id").references((): any => users.id, { onDelete: "set null" }),
 }, (t) => [
   uniqueIndex("users_companyid_email_unique").on(t.companyId, t.email),
   index("idx_user_company_id").on(t.companyId),
   index("idx_workos_user_id").on(t.workosUserId),
 ]);
 
-// ------------------------- daily_visit_reports -------------------------
+/* ========================= daily_visit_reports ========================= */
 export const dailyVisitReports = pgTable("daily_visit_reports", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   reportDate: date("report_date").notNull(),
-  dealerType: varchar("dealer_type", { length: 50 }).notNull(),
+  dealerType: varchar("dealer_type", { length: 50 }).notNull(), // "Dealer" | "Sub Dealer"
   dealerName: varchar("dealer_name", { length: 255 }),
   subDealerName: varchar("sub_dealer_name", { length: 255 }),
   location: varchar("location", { length: 500 }).notNull(),
   latitude: numeric("latitude", { precision: 10, scale: 7 }).notNull(),
   longitude: numeric("longitude", { precision: 10, scale: 7 }).notNull(),
-  visitType: varchar("visit_type", { length: 50 }).notNull(),
+  visitType: varchar("visit_type", { length: 50 }).notNull(), // "Best" | "Non Best"
   dealerTotalPotential: numeric("dealer_total_potential", { precision: 10, scale: 2 }).notNull(),
   dealerBestPotential: numeric("dealer_best_potential", { precision: 10, scale: 2 }).notNull(),
   brandSelling: text("brand_selling").array().notNull(),
@@ -75,13 +82,16 @@ export const dailyVisitReports = pgTable("daily_visit_reports", {
   checkOutTime: timestamp("check_out_time", { withTimezone: true, precision: 6 }),
   inTimeImageUrl: varchar("in_time_image_url", { length: 500 }),
   outTimeImageUrl: varchar("out_time_image_url", { length: 500 }),
+  // Link to PJP (new)
+  pjpId: varchar("pjp_id", { length: 255 }).references(() => permanentJourneyPlans.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
   index("idx_daily_visit_reports_user_id").on(t.userId),
+  index("idx_daily_visit_reports_pjp_id").on(t.pjpId),
 ]);
 
-// ------------------------- technical_visit_reports -------------------------
+/* ========================= technical_visit_reports ========================= */
 export const technicalVisitReports = pgTable("technical_visit_reports", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -96,8 +106,6 @@ export const technicalVisitReports = pgTable("technical_visit_reports", {
   checkOutTime: timestamp("check_out_time", { withTimezone: true, precision: 6 }),
   inTimeImageUrl: varchar("in_time_image_url", { length: 500 }),
   outTimeImageUrl: varchar("out_time_image_url", { length: 500 }),
-  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   siteVisitBrandInUse: text("site_visit_brand_in_use").array().notNull(),
   siteVisitStage: text("site_visit_stage"),
   conversionFromBrand: text("conversion_from_brand"),
@@ -109,11 +117,21 @@ export const technicalVisitReports = pgTable("technical_visit_reports", {
   qualityComplaint: text("quality_complaint"),
   promotionalActivity: text("promotional_activity"),
   channelPartnerVisit: text("channel_partner_visit"),
+  // New fields for parity
+  siteVisitType: varchar("site_visit_type", { length: 50 }),
+  dhalaiVerificationCode: varchar("dhalai_verification_code", { length: 50 }),
+  isVerificationStatus: varchar("is_verification_status", { length: 50 }),
+  meetingId: varchar("meeting_id", { length: 255 }).references(() => tsoMeetings.id),
+  pjpId: varchar("pjp_id", { length: 255 }).references(() => permanentJourneyPlans.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
   index("idx_technical_visit_reports_user_id").on(t.userId),
+  index("idx_technical_visit_reports_meeting_id").on(t.meetingId),
+  index("idx_technical_visit_reports_pjp_id").on(t.pjpId),
 ]);
 
-// ------------------------- permanent_journey_plans -------------------------
+/* ========================= permanent_journey_plans ========================= */
 export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -129,12 +147,12 @@ export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
   index("idx_permanent_journey_plans_created_by_id").on(t.createdById),
 ]);
 
-// ------------------------- dealers -------------------------
+/* ========================= dealers (extended to match Prisma) ========================= */
 export const dealers = pgTable("dealers", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
   type: varchar("type", { length: 50 }).notNull(),
-  parentDealerId: varchar("parent_dealer_id", { length: 255 }).references((): any => dealers.id, { onDelete: "set null" }), // ← Add `: any` here
+  parentDealerId: varchar("parent_dealer_id", { length: 255 }).references((): any => dealers.id, { onDelete: "set null" }),
   name: varchar("name", { length: 255 }).notNull(),
   region: varchar("region", { length: 100 }).notNull(),
   area: varchar("area", { length: 255 }).notNull(),
@@ -150,6 +168,62 @@ export const dealers = pgTable("dealers", {
   brandSelling: text("brand_selling").array().notNull(),
   feedbacks: varchar("feedbacks", { length: 500 }).notNull(),
   remarks: varchar("remarks", { length: 500 }),
+
+  // Verification & IDs
+  verificationStatus: varchar("verification_status", { length: 50 }).notNull().default("PENDING"),
+  whatsappNo: varchar("whatsapp_no", { length: 20 }),
+  emailId: varchar("email_id", { length: 255 }),
+  businessType: varchar("business_type", { length: 100 }),
+  gstinNo: varchar("gstin_no", { length: 20 }),
+  panNo: varchar("pan_no", { length: 20 }),
+  tradeLicNo: varchar("trade_lic_no", { length: 150 }),
+  aadharNo: varchar("aadhar_no", { length: 20 }),
+
+  // Godown
+  godownSizeSqFt: integer("godown_size_sqft"),
+  godownCapacityMTBags: varchar("godown_capacity_mt_bags", { length: 255 }),
+  godownAddressLine: varchar("godown_address_line", { length: 500 }),
+  godownLandMark: varchar("godown_landmark", { length: 255 }),
+  godownDistrict: varchar("godown_district", { length: 100 }),
+  godownArea: varchar("godown_area", { length: 255 }),
+  godownRegion: varchar("godown_region", { length: 100 }),
+  godownPinCode: varchar("godown_pincode", { length: 20 }),
+
+  // Residential
+  residentialAddressLine: varchar("residential_address_line", { length: 500 }),
+  residentialLandMark: varchar("residential_landmark", { length: 255 }),
+  residentialDistrict: varchar("residential_district", { length: 100 }),
+  residentialArea: varchar("residential_area", { length: 255 }),
+  residentialRegion: varchar("residential_region", { length: 100 }),
+  residentialPinCode: varchar("residential_pincode", { length: 20 }),
+
+  // Bank
+  bankAccountName: varchar("bank_account_name", { length: 255 }),
+  bankName: varchar("bank_name", { length: 255 }),
+  bankBranchAddress: varchar("bank_branch_address", { length: 500 }),
+  bankAccountNumber: varchar("bank_account_number", { length: 50 }),
+  bankIfscCode: varchar("bank_ifsc_code", { length: 50 }),
+
+  // Sales & promoter
+  brandName: varchar("brand_name", { length: 255 }),
+  monthlySaleMT: numeric("monthly_sale_mt", { precision: 10, scale: 2 }),
+  noOfDealers: integer("no_of_dealers"),
+  areaCovered: varchar("area_covered", { length: 255 }),
+  projectedMonthlySalesBestCementMT: numeric("projected_monthly_sales_best_cement_mt", { precision: 10, scale: 2 }),
+  noOfEmployeesInSales: integer("no_of_employees_in_sales"),
+
+  // Declaration
+  declarationName: varchar("declaration_name", { length: 255 }),
+  declarationPlace: varchar("declaration_place", { length: 100 }),
+  declarationDate: date("declaration_date"),
+
+  // Document URLs
+  tradeLicencePicUrl: varchar("trade_licence_pic_url", { length: 500 }),
+  shopPicUrl: varchar("shop_pic_url", { length: 500 }),
+  dealerPicUrl: varchar("dealer_pic_url", { length: 500 }),
+  blankChequePicUrl: varchar("blank_cheque_pic_url", { length: 500 }),
+  partnershipDeedPicUrl: varchar("partnership_deed_pic_url", { length: 500 }),
+
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
@@ -157,7 +231,7 @@ export const dealers = pgTable("dealers", {
   index("idx_dealers_parent_dealer_id").on(t.parentDealerId),
 ]);
 
-// ------------------------- salesman_attendance -------------------------
+/* ========================= salesman_attendance ========================= */
 export const salesmanAttendance = pgTable("salesman_attendance", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -187,7 +261,7 @@ export const salesmanAttendance = pgTable("salesman_attendance", {
   index("idx_salesman_attendance_user_id").on(t.userId),
 ]);
 
-// ------------------------- salesman_leave_applications -------------------------
+/* ========================= salesman_leave_applications ========================= */
 export const salesmanLeaveApplications = pgTable("salesman_leave_applications", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -195,7 +269,7 @@ export const salesmanLeaveApplications = pgTable("salesman_leave_applications", 
   startDate: date("start_date").notNull(),
   endDate: date("end_date").notNull(),
   reason: varchar("reason", { length: 500 }).notNull(),
-  status: varchar("status", { length: 50 }).notNull(),
+  status: varchar("status", { length: 50 }).notNull(), // "Pending" | "Approved" | "Rejected"
   adminRemarks: varchar("admin_remarks", { length: 500 }),
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
@@ -203,7 +277,7 @@ export const salesmanLeaveApplications = pgTable("salesman_leave_applications", 
   index("idx_salesman_leave_applications_user_id").on(t.userId),
 ]);
 
-// ------------------------- client_reports (Updated to match Neon DB) -------------------------
+/* ========================= client_reports (legacy util) ========================= */
 export const clientReports = pgTable("client_reports", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`substr(replace(cast(gen_random_uuid() as text),'-',''),1,25)`),
   dealerType: text("dealerType").notNull(),
@@ -226,7 +300,7 @@ export const clientReports = pgTable("client_reports", {
   updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// ------------------------- competition_reports -------------------------
+/* ========================= competition_reports ========================= */
 export const competitionReports = pgTable("competition_reports", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`substr(replace(cast(gen_random_uuid() as text),'-',''),1,25)`),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -244,7 +318,7 @@ export const competitionReports = pgTable("competition_reports", {
   index("competition_reports_user_idx").on(t.userId),
 ]);
 
-// ------------------------- geo_tracking -------------------------
+/* ========================= geo_tracking ========================= */
 export const geoTracking = pgTable("geo_tracking", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -280,7 +354,7 @@ export const geoTracking = pgTable("geo_tracking", {
   index("idx_geo_tracking_recorded_at").on(t.recordedAt),
 ]);
 
-// ------------------------- daily_tasks -------------------------
+/* ========================= daily_tasks ========================= */
 export const dailyTasks = pgTable("daily_tasks", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -291,9 +365,9 @@ export const dailyTasks = pgTable("daily_tasks", {
   siteName: varchar("site_name", { length: 255 }),
   description: varchar("description", { length: 500 }),
   status: varchar("status", { length: 50 }).notNull().default("Assigned"),
+  pjpId: varchar("pjp_id", { length: 255 }).references(() => permanentJourneyPlans.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
-  pjpId: varchar("pjp_id", { length: 255 }).references(() => permanentJourneyPlans.id, { onDelete: "set null" }),
 }, (t) => [
   index("idx_daily_tasks_user_id").on(t.userId),
   index("idx_daily_tasks_assigned_by_user_id").on(t.assignedByUserId),
@@ -304,7 +378,7 @@ export const dailyTasks = pgTable("daily_tasks", {
   index("idx_daily_tasks_status").on(t.status),
 ]);
 
-// ------------------------- dealer_reports_and_scores -------------------------
+/* ========================= dealer_reports_and_scores ========================= */
 export const dealerReportsAndScores = pgTable("dealer_reports_and_scores", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`substr(replace(cast(gen_random_uuid() as text),'-',''),1,25)`),
   dealerId: varchar("dealer_id", { length: 255 }).notNull().unique().references(() => dealers.id),
@@ -318,7 +392,7 @@ export const dealerReportsAndScores = pgTable("dealer_reports_and_scores", {
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 });
 
-// ------------------------- sales_report -------------------------
+/* ========================= sales_report ========================= */
 export const salesReport = pgTable("sales_report", {
   id: serial("id").primaryKey(),
   date: date("date").notNull(),
@@ -330,7 +404,7 @@ export const salesReport = pgTable("sales_report", {
   dealerId: varchar("dealer_id", { length: 255 }).notNull().references(() => dealers.id),
 });
 
-// ------------------------- collection_reports -------------------------
+/* ========================= collection_reports ========================= */
 export const collectionReports = pgTable("collection_reports", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   dvrId: varchar("dvr_id", { length: 255 }).notNull().unique().references(() => dailyVisitReports.id, { onDelete: "cascade" }),
@@ -347,7 +421,7 @@ export const collectionReports = pgTable("collection_reports", {
   index("idx_collection_reports_dealer_id").on(t.dealerId),
 ]);
 
-// ------------------------- dealer_development_process -------------------------
+/* ========================= dealer_development_process ========================= */
 export const ddp = pgTable("dealer_development_process", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -357,7 +431,7 @@ export const ddp = pgTable("dealer_development_process", {
   obstacle: text("obstacle"),
 });
 
-// ------------------------- ratings -------------------------
+/* ========================= ratings ========================= */
 export const ratings = pgTable("ratings", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -366,13 +440,13 @@ export const ratings = pgTable("ratings", {
   rating: integer("rating").notNull(),
 });
 
-// ------------------------- brands -------------------------
+/* ========================= brands ========================= */
 export const brands = pgTable("brands", {
   id: serial("id").primaryKey(),
   name: varchar("brand_name", { length: 255 }).notNull().unique(),
 });
 
-// ------------------------- dealer_brand_mapping -------------------------
+/* ========================= dealer_brand_mapping ========================= */
 export const dealerBrandMapping = pgTable("dealer_brand_mapping", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`substr(replace(cast(gen_random_uuid() as text),'-',''),1,25)`),
   dealerId: varchar("dealer_id", { length: 255 }).notNull().references(() => dealers.id),
@@ -382,26 +456,106 @@ export const dealerBrandMapping = pgTable("dealer_brand_mapping", {
   uniqueIndex("dealer_brand_mapping_dealer_id_brand_id_unique").on(t.dealerId, t.brandId),
 ]);
 
-//-------------------------- salesOrder---------------------------------------
+/* ========================= tso_meetings (new) ========================= */
+export const tsoMeetings = pgTable("tso_meetings", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  type: varchar("type", { length: 100 }).notNull(), // e.g., "Head Mason Meet"
+  date: date("date").notNull(),
+  location: varchar("location", { length: 500 }).notNull(),
+  budgetAllocated: numeric("budget_allocated", { precision: 12, scale: 2 }),
+  participantsCount: integer("participants_count"),
+  createdByUserId: integer("created_by_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
+}, (t) => [
+  index("idx_tso_meetings_created_by_user_id").on(t.createdByUserId),
+]);
+
+/* ========================= gift_inventory (new) ========================= */
+export const giftInventory = pgTable("gift_inventory", {
+  id: serial("id").primaryKey(),
+  itemName: varchar("item_name", { length: 255 }).notNull().unique(),
+  unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
+  totalAvailableQuantity: integer("total_available_quantity").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
+});
+
+/* ========================= gift_allocation_logs (new) ========================= */
+export const giftAllocationLogs = pgTable("gift_allocation_logs", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  giftId: integer("gift_id").notNull().references(() => giftInventory.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  transactionType: varchar("transaction_type", { length: 50 }).notNull(), // Allocation | Transfer | Distribution | Deduction
+  quantity: integer("quantity").notNull(),
+  sourceUserId: integer("source_user_id").references(() => users.id, { onDelete: "set null" }),
+  destinationUserId: integer("destination_user_id").references(() => users.id, { onDelete: "set null" }),
+  relatedReportId: varchar("related_report_id", { length: 255 }),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+}, (t) => [
+  index("idx_gift_logs_gift_id").on(t.giftId),
+  index("idx_gift_logs_user_id").on(t.userId),
+  index("idx_gift_logs_source_user_id").on(t.sourceUserId),
+  index("idx_gift_logs_destination_user_id").on(t.destinationUserId),
+]);
+
+/* ========================= sales_orders (replaced to match Prisma) ========================= */
 export const salesOrders = pgTable("sales_orders", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
-  salesmanId: integer("salesman_id").references(() => users.id, { onDelete: "set null" }),
+
+  // Relations
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
   dealerId: varchar("dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null" }),
-  quantity: numeric("quantity", { precision: 10, scale: 2 }).notNull(),
-  unit: varchar("unit", { length: 50 }).notNull(),
-  orderTotal: numeric("orderTotal", { precision: 12, scale: 2 }).notNull(),
-  advancePayment: numeric("advancePayment", { precision: 12, scale: 2 }).notNull(),
-  pendingPayment: numeric("pendingPayment", { precision: 12, scale: 2 }).notNull(),
-  estimatedDelivery: date("estimatedDelivery").notNull(),
-  remarks: varchar("remarks", { length: 500 }),
+  dvrId: varchar("dvr_id", { length: 255 }).references(() => dailyVisitReports.id, { onDelete: "set null" }),
+  pjpId: varchar("pjp_id", { length: 255 }).references(() => permanentJourneyPlans.id, { onDelete: "set null" }),
+
+  // Business fields
+  orderDate: date("order_date").notNull(),
+  orderPartyName: varchar("order_party_name", { length: 255 }).notNull(),
+
+  // Party details
+  partyPhoneNo: varchar("party_phone_no", { length: 20 }),
+  partyArea: varchar("party_area", { length: 255 }),
+  partyRegion: varchar("party_region", { length: 255 }),
+  partyAddress: varchar("party_address", { length: 500 }),
+
+  // Delivery details
+  deliveryDate: date("delivery_date"),
+  deliveryArea: varchar("delivery_area", { length: 255 }),
+  deliveryRegion: varchar("delivery_region", { length: 255 }),
+  deliveryAddress: varchar("delivery_address", { length: 500 }),
+  deliveryLocPincode: varchar("delivery_loc_pincode", { length: 10 }),
+
+  // Payment
+  paymentMode: varchar("payment_mode", { length: 50 }),
+  paymentTerms: varchar("payment_terms", { length: 500 }),
+  paymentAmount: numeric("payment_amount", { precision: 12, scale: 2 }),
+  receivedPayment: numeric("received_payment", { precision: 12, scale: 2 }),
+  receivedPaymentDate: date("received_payment_date"),
+  pendingPayment: numeric("pending_payment", { precision: 12, scale: 2 }),
+
+  // Qty & unit
+  orderQty: numeric("order_qty", { precision: 12, scale: 3 }),
+  orderUnit: varchar("order_unit", { length: 20 }), // "MT" | "BAGS"
+
+  // Pricing & discounts
+  itemPrice: numeric("item_price", { precision: 12, scale: 2 }),
+  discountPercentage: numeric("discount_percentage", { precision: 5, scale: 2 }),
+  itemPriceAfterDiscount: numeric("item_price_after_discount", { precision: 12, scale: 2 }),
+
+  // Product classification
+  itemType: varchar("item_type", { length: 20 }), // "PPC" | "OPC"
+  itemGrade: varchar("item_grade", { length: 10 }), // "33" | "43" | "53"
+
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
-  index("idx_sales_orders_salesman_id").on(t.salesmanId),
-  index("idx_sales_orders_dealer_id").on(t.dealerId),
+  index("idx_sales_orders_dvr_id").on(t.dvrId),
+  index("idx_sales_orders_pjp_id").on(t.pjpId),
+  index("idx_sales_orders_order_date").on(t.orderDate),
 ]);
 
-// ------------------------- master_connected_table -------------------------
+/* ========================= master_connected_table ========================= */
 export const masterConnectedTable = pgTable("master_connected_table", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   companyId: integer("companyId"),
@@ -417,7 +571,7 @@ export const masterConnectedTable = pgTable("master_connected_table", {
   clientReportId: varchar("clientReportId", { length: 255 }),
   competitionReportId: varchar("competitionReportId", { length: 255 }),
   geoTrackingId: varchar("geoTrackingId", { length: 255 }),
-  salesOrderId: varchar("salesOrderId", { length: 255 }),  // MOVED TO MATCH ORDER
+  salesOrderId: varchar("salesOrderId", { length: 255 }),
   dealerReportsAndScoresId: varchar("dealerReportsAndScoresId", { length: 255 }),
   salesReportId: integer("salesReportId"),
   collectionReportId: varchar("collectionReportId", { length: 255 }),
@@ -441,7 +595,7 @@ export const masterConnectedTable = pgTable("master_connected_table", {
   index("idx_mct_client_report_id").on(t.clientReportId),
   index("idx_mct_comp_report_id").on(t.competitionReportId),
   index("idx_mct_geotracking_id").on(t.geoTrackingId),
-  index("idx_mct_sales_order_id").on(t.salesOrderId),  // MOVED TO MATCH ORDER
+  index("idx_mct_sales_order_id").on(t.salesOrderId),
   index("idx_mct_dealer_scores_id").on(t.dealerReportsAndScoresId),
   index("idx_mct_sales_report_id").on(t.salesReportId),
   index("idx_mct_collection_report_id").on(t.collectionReportId),
@@ -451,7 +605,7 @@ export const masterConnectedTable = pgTable("master_connected_table", {
   index("idx_mct_dealer_brand_map_id").on(t.dealerBrandMappingId),
 ]);
 
-// Generate and export insert schemas
+/* ========================= drizzle-zod insert schemas ========================= */
 export const insertCompanySchema = createInsertSchema(companies);
 export const insertUserSchema = createInsertSchema(users);
 export const insertDailyVisitReportSchema = createInsertSchema(dailyVisitReports);
@@ -472,4 +626,7 @@ export const insertRatingSchema = createInsertSchema(ratings);
 export const insertSalesOrderSchema = createInsertSchema(salesOrders);
 export const insertBrandSchema = createInsertSchema(brands);
 export const insertDealerBrandMappingSchema = createInsertSchema(dealerBrandMapping);
-export const insertMasterConnectedTableSchema = createInsertSchema(masterConnectedTable); 
+export const insertTsoMeetingSchema = createInsertSchema(tsoMeetings);
+export const insertGiftInventorySchema = createInsertSchema(giftInventory);
+export const insertGiftAllocationLogSchema = createInsertSchema(giftAllocationLogs);
+export const insertMasterConnectedTableSchema = createInsertSchema(masterConnectedTable);

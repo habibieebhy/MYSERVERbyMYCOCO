@@ -1,77 +1,134 @@
-//  server/src/routes/dataFetchingRoutes/salesOrder.ts 
-// Sales Orders GET endpoints using createAutoCRUD pattern
+// server/src/routes/dataFetchingRoutes/salesOrder.ts
+// Sales Orders GET endpoints aligned to new schema
 
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
 import { salesOrders, insertSalesOrderSchema } from '../../db/schema';
-import { eq, and, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, gte, lte, desc, asc, ilike, sql } from 'drizzle-orm';
 import { z } from 'zod';
+
+type TableLike = typeof salesOrders;
+
+// ---------- helpers ----------
+const numberish = (v: unknown) => {
+  if (v === null || v === undefined || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const boolish = (v: unknown) => {
+  if (v === 'true' || v === true) return true;
+  if (v === 'false' || v === false) return false;
+  return undefined;
+};
+
+// pick a column safely from whitelist
+function pickDateColumn(table: TableLike, key?: string) {
+  switch ((key || '').toLowerCase()) {
+    case 'deliverydate': return table.deliveryDate;
+    case 'receivedpaymentdate': return table.receivedPaymentDate;
+    case 'createdat': return table.createdAt;
+    default: return table.orderDate; // default
+  }
+}
 
 function createAutoCRUD(app: Express, config: {
   endpoint: string,
-  table: any,
-  schema: z.ZodSchema,
+  table: TableLike,
+  schema: z.ZodSchema, // not used but kept for parity
   tableName: string,
-  autoFields?: { [key: string]: () => any },
-  dateField?: string
 }) {
-  const { endpoint, table, schema, tableName, autoFields = {}, dateField } = config;
+  const { endpoint, table, tableName } = config;
 
-  // GET ALL - with optional filtering and date range
+  const SORT_WHITELIST: Record<string, keyof typeof table> = {
+    createdAt: 'createdAt',
+    orderDate: 'orderDate',
+    deliveryDate: 'deliveryDate',
+    paymentAmount: 'paymentAmount',
+    receivedPayment: 'receivedPayment',
+    pendingPayment: 'pendingPayment',
+    itemPrice: 'itemPrice',
+  };
+
+  const buildSort = (sortByRaw?: string, sortDirRaw?: string) => {
+    const k = sortByRaw && SORT_WHITELIST[sortByRaw] ? SORT_WHITELIST[sortByRaw] : 'createdAt';
+    const dir = (sortDirRaw || '').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    return dir === 'asc' ? asc(table[k]) : desc(table[k]);
+  };
+
+  const buildWhere = (q: any) => {
+    const conds: any[] = [];
+
+    // ---- IDs / relations ----
+    if (q.userId) {
+      const v = numberish(q.userId);
+      if (v !== undefined) conds.push(eq(table.userId, v));
+    }
+    if (q.dealerId) conds.push(eq(table.dealerId, String(q.dealerId)));
+    if (q.dvrId) conds.push(eq(table.dvrId, String(q.dvrId)));
+    if (q.pjpId) conds.push(eq(table.pjpId, String(q.pjpId)));
+
+    // ---- enums / text exact ----
+    if (q.orderUnit) conds.push(eq(table.orderUnit, String(q.orderUnit)));
+    if (q.itemType) conds.push(eq(table.itemType, String(q.itemType)));
+    if (q.itemGrade) conds.push(eq(table.itemGrade, String(q.itemGrade)));
+    if (q.paymentMode) conds.push(eq(table.paymentMode, String(q.paymentMode)));
+
+    // ---- date range (choose column by ?dateField=orderDate|deliveryDate|receivedPaymentDate|createdAt) ----
+    const col = pickDateColumn(table, q.dateField);
+    const dateFrom = q.dateFrom ? String(q.dateFrom) : undefined;
+    const dateTo = q.dateTo ? String(q.dateTo) : undefined;
+    if (dateFrom) conds.push(gte(col, dateFrom));
+    if (dateTo) conds.push(lte(col, dateTo));
+
+    // ---- numeric ranges ----
+    const minQty = numberish(q.minQty), maxQty = numberish(q.maxQty);
+    if (minQty !== undefined) conds.push(gte(table.orderQty, minQty));
+    if (maxQty !== undefined) conds.push(lte(table.orderQty, maxQty));
+
+    const minPay = numberish(q.minPayment), maxPay = numberish(q.maxPayment);
+    if (minPay !== undefined) conds.push(gte(table.paymentAmount, minPay));
+    if (maxPay !== undefined) conds.push(lte(table.paymentAmount, maxPay));
+
+    const minRecv = numberish(q.minReceived), maxRecv = numberish(q.maxReceived);
+    if (minRecv !== undefined) conds.push(gte(table.receivedPayment, minRecv));
+    if (maxRecv !== undefined) conds.push(lte(table.receivedPayment, maxRecv));
+
+    const minPending = numberish(q.minPending), maxPending = numberish(q.maxPending);
+    if (minPending !== undefined) conds.push(gte(table.pendingPayment, minPending));
+    if (maxPending !== undefined) conds.push(lte(table.pendingPayment, maxPending));
+
+    // ---- simple search: party name + addresses ----
+    if (q.search) {
+      const s = `%${String(q.search).trim()}%`;
+      conds.push(
+        sql`(${ilike(table.orderPartyName, s)}
+          OR ${ilike(table.partyAddress, s)}
+          OR ${ilike(table.deliveryAddress, s)})`
+      );
+    }
+
+    if (!conds.length) return undefined;
+    return conds.length === 1 ? conds[0] : and(...conds);
+  };
+
+  // ===== GET ALL =====
   app.get(`/api/${endpoint}`, async (req: Request, res: Response) => {
     try {
-      const { startDate, endDate, limit = '50', salesmanId, dealerId, ...filters } = req.query;
+      const { limit = '50', page = '1', sortBy, sortDir, ...filters } = req.query;
 
-      let whereCondition: any = undefined;
+      const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
+      const pg = Math.max(1, parseInt(String(page), 10) || 1);
+      const offset = (pg - 1) * lmt;
 
-      // Date range filtering using estimatedDelivery or createdAt
-      if (startDate && endDate && dateField && table[dateField]) {
-        whereCondition = and(
-          gte(table[dateField], startDate as string),
-          lte(table[dateField], endDate as string)
-        );
-      }
+      const whereCond = buildWhere(filters);
+      const orderExpr = buildSort(String(sortBy), String(sortDir));
 
-      // Filter by salesmanId
-      if (salesmanId) {
-        whereCondition = whereCondition 
-          ? and(whereCondition, eq(table.salesmanId, parseInt(salesmanId as string)))
-          : eq(table.salesmanId, parseInt(salesmanId as string));
-      }
+      let q = db.select().from(table).orderBy(orderExpr).limit(lmt).offset(offset);
+      if (whereCond) q = q.where(whereCond);
 
-      // Filter by dealerId
-      if (dealerId) {
-        whereCondition = whereCondition 
-          ? and(whereCondition, eq(table.dealerId, dealerId as string))
-          : eq(table.dealerId, dealerId as string);
-      }
-
-      // Additional filters
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value && table[key]) {
-          if (key === 'salesmanId') {
-            whereCondition = whereCondition
-              ? and(whereCondition, eq(table[key], parseInt(value as string)))
-              : eq(table[key], parseInt(value as string));
-          } else {
-            whereCondition = whereCondition
-              ? and(whereCondition, eq(table[key], value))
-              : eq(table[key], value);
-          }
-        }
-      });
-
-      let query = db.select().from(table);
-      
-      if (whereCondition) {
-        query = query.where(whereCondition);
-      }
-
-      const records = await query
-        .orderBy(desc(table.createdAt))
-        .limit(parseInt(limit as string));
-
-      res.json({ success: true, data: records });
+      const data = await q;
+      res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s error:`, error);
       res.status(500).json({
@@ -82,35 +139,31 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
-  // GET BY Salesman ID
-  app.get(`/api/${endpoint}/salesman/:salesmanId`, async (req: Request, res: Response) => {
+  // ===== GET BY USER (salesman) =====
+  app.get(`/api/${endpoint}/user/:userId`, async (req: Request, res: Response) => {
     try {
-      const { salesmanId } = req.params;
-      const { startDate, endDate, limit = '50', dealerId } = req.query;
+      const { userId } = req.params;
+      const { limit = '50', page = '1', sortBy, sortDir, ...rest } = req.query;
 
-      let whereCondition = eq(table.salesmanId, parseInt(salesmanId));
+      const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
+      const pg = Math.max(1, parseInt(String(page), 10) || 1);
+      const offset = (pg - 1) * lmt;
 
-      // Date range filtering
-      if (startDate && endDate && dateField && table[dateField]) {
-        whereCondition = and(
-          whereCondition,
-          gte(table[dateField], startDate as string),
-          lte(table[dateField], endDate as string)
-        );
-      }
+      const base = eq(table.userId, parseInt(userId, 10));
+      const extra = buildWhere(rest);
+      const whereCond = extra ? and(base, extra) : base;
 
-      if (dealerId) {
-        whereCondition = and(whereCondition, eq(table.dealerId, dealerId as string));
-      }
+      const orderExpr = buildSort(String(sortBy), String(sortDir));
 
-      const records = await db.select().from(table)
-        .where(whereCondition)
-        .orderBy(desc(table.createdAt))
-        .limit(parseInt(limit as string));
+      const data = await db.select().from(table)
+        .where(whereCond)
+        .orderBy(orderExpr)
+        .limit(lmt)
+        .offset(offset);
 
-      res.json({ success: true, data: records });
+      res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
-      console.error(`Get ${tableName}s by Salesman error:`, error);
+      console.error(`Get ${tableName}s by User error:`, error);
       res.status(500).json({
         success: false,
         error: `Failed to fetch ${tableName}s`,
@@ -119,57 +172,29 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
-  // GET BY ID
-  app.get(`/api/${endpoint}/:id`, async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const [record] = await db.select().from(table).where(eq(table.id, id)).limit(1);
-
-      if (!record) {
-        return res.status(404).json({
-          success: false,
-          error: `${tableName} not found`
-        });
-      }
-
-      res.json({ success: true, data: record });
-    } catch (error) {
-      console.error(`Get ${tableName} error:`, error);
-      res.status(500).json({
-        success: false,
-        error: `Failed to fetch ${tableName}`,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  // GET BY Dealer ID
+  // ===== GET BY DEALER =====
   app.get(`/api/${endpoint}/dealer/:dealerId`, async (req: Request, res: Response) => {
     try {
       const { dealerId } = req.params;
-      const { startDate, endDate, limit = '50', salesmanId } = req.query;
+      const { limit = '50', page = '1', sortBy, sortDir, ...rest } = req.query;
 
-      let whereCondition = eq(table.dealerId, dealerId);
+      const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
+      const pg = Math.max(1, parseInt(String(page), 10) || 1);
+      const offset = (pg - 1) * lmt;
 
-      // Date range filtering
-      if (startDate && endDate && dateField && table[dateField]) {
-        whereCondition = and(
-          whereCondition,
-          gte(table[dateField], startDate as string),
-          lte(table[dateField], endDate as string)
-        );
-      }
+      const base = eq(table.dealerId, dealerId);
+      const extra = buildWhere(rest);
+      const whereCond = extra ? and(base, extra) : base;
 
-      if (salesmanId) {
-        whereCondition = and(whereCondition, eq(table.salesmanId, parseInt(salesmanId as string)));
-      }
+      const orderExpr = buildSort(String(sortBy), String(sortDir));
 
-      const records = await db.select().from(table)
-        .where(whereCondition)
-        .orderBy(desc(table.createdAt))
-        .limit(parseInt(limit as string));
+      const data = await db.select().from(table)
+        .where(whereCond)
+        .orderBy(orderExpr)
+        .limit(lmt)
+        .offset(offset);
 
-      res.json({ success: true, data: records });
+      res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s by Dealer error:`, error);
       res.status(500).json({
@@ -180,19 +205,30 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
+  // ===== GET ONE =====
+  app.get(`/api/${endpoint}/:id`, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const [record] = await db.select().from(table).where(eq(table.id, id)).limit(1);
+      if (!record) return res.status(404).json({ success: false, error: `${tableName} not found` });
+      res.json({ success: true, data: record });
+    } catch (error) {
+      console.error(`Get ${tableName} error:`, error);
+      res.status(500).json({
+        success: false,
+        error: `Failed to fetch ${tableName}`,
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
 }
 
-// Function call in the same file
 export default function setupSalesOrdersRoutes(app: Express) {
-  // Sales Orders - date field for filtering by estimated delivery
   createAutoCRUD(app, {
     endpoint: 'sales-orders',
     table: salesOrders,
     schema: insertSalesOrderSchema,
     tableName: 'Sales Order',
-    dateField: 'estimatedDelivery'
-    // No auto fields needed
   });
-  
-  console.log('✅ Sales Orders GET endpoints setup complete');
+  console.log('✅ Sales Orders GET endpoints (new schema) ready');
 }

@@ -1,68 +1,145 @@
-//  server/src/routes/dataFetchingRoutes/dealers.ts 
-// Dealers GET endpoints using createAutoCRUD pattern
-
+// server/src/routes/dataFetchingRoutes/dealers.ts
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
 import { dealers, insertDealerSchema } from '../../db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, asc, ilike, sql } from 'drizzle-orm';
 import { z } from 'zod';
+
+type TableLike = typeof dealers;
+
+// ---------- helpers ----------
+const numberish = (v: unknown) => {
+  if (v === null || v === undefined || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const boolish = (v: unknown) => {
+  if (v === 'true' || v === true) return true;
+  if (v === 'false' || v === false) return false;
+  return undefined;
+};
+
+// normalize brand query to string[]
+function extractBrands(q: any): string[] {
+  const raw = q.brand ?? q.brands ?? q.brandSelling ?? undefined;
+  if (!raw) return [];
+  const arr = Array.isArray(raw)
+    ? raw
+    : String(raw).includes(',')
+      ? String(raw).split(',').map(s => s.trim()).filter(Boolean)
+      : [String(raw).trim()].filter(Boolean);
+  return arr as string[];
+}
+
+// safely convert to a Postgres array literal, used as a bound parameter
+function toPgArrayLiteral(values: string[]): string {
+  return `{${values
+    .map(v =>
+      String(v)
+        .replace(/\\/g, '\\\\')
+        .replace(/{/g, '\\{')
+        .replace(/}/g, '\\}')
+        .trim()
+    )
+    .join(',')}}`;
+}
 
 function createAutoCRUD(app: Express, config: {
   endpoint: string,
-  table: any,
+  table: TableLike,
   schema: z.ZodSchema,
   tableName: string,
-  autoFields?: { [key: string]: () => any },
-  dateField?: string
 }) {
-  const { endpoint, table, schema, tableName, autoFields = {}, dateField } = config;
+  const { endpoint, table, tableName } = config;
 
-  // GET ALL - with optional filtering
-  app.get(`/api/${endpoint}`, async (req: Request, res: Response) => {
+  const SORT_WHITELIST: Record<string, keyof typeof table> = {
+    createdAt: 'createdAt',
+    name: 'name',
+    region: 'region',
+    area: 'area',
+    type: 'type',
+    verification_status: 'verificationStatus',
+    verificationStatus: 'verificationStatus',
+  };
+
+  const buildWhere = (q: any) => {
+    const conds: any[] = [];
+
+    // optional filters (NO default verification filter)
+    if (q.region) conds.push(eq(table.region, String(q.region)));
+    if (q.area) conds.push(eq(table.area, String(q.area)));
+    if (q.type) conds.push(eq(table.type, String(q.type)));
+    if (q.userId) {
+      const uid = numberish(q.userId);
+      if (uid !== undefined) conds.push(eq(table.userId, uid));
+    }
+    if (q.verificationStatus) conds.push(eq(table.verificationStatus, String(q.verificationStatus)));
+    if (q.pinCode) conds.push(eq(table.pinCode, String(q.pinCode)));
+    if (q.businessType) conds.push(eq(table.businessType, String(q.businessType)));
+
+    // hierarchy filters
+    const onlyParents = boolish(q.onlyParents);
+    const onlySubs = boolish(q.onlySubs);
+    const parentDealerId = q.parentDealerId as string | undefined;
+
+    if (parentDealerId) {
+      conds.push(eq(table.parentDealerId, parentDealerId));
+    } else if (onlyParents) {
+      conds.push(sql`${table.parentDealerId} IS NULL`);
+    } else if (onlySubs) {
+      conds.push(sql`${table.parentDealerId} IS NOT NULL`);
+    }
+
+    // lightweight search
+    if (q.search) {
+      const s = `%${String(q.search).trim()}%`;
+      conds.push(
+        sql`(${ilike(table.name, s)} 
+          OR ${ilike(table.phoneNo, s)} 
+          OR ${ilike(table.address, s)} 
+          OR ${ilike(table.emailId, s)})`
+      );
+    }
+
+    // brandSelling filters
+    const brands = extractBrands(q);
+    if (brands.length) {
+      const arrLiteral = toPgArrayLiteral(brands); // e.g. {Ultratech,Star}
+      const anyBrand = boolish(q.anyBrand); // ?anyBrand=true => overlap (ANY); default is ALL
+      if (anyBrand) {
+        conds.push(sql`${table.brandSelling} && ${arrLiteral}::text[]`);
+      } else {
+        conds.push(sql`${table.brandSelling} @> ${arrLiteral}::text[]`);
+      }
+    }
+
+    if (!conds.length) return undefined;
+    return conds.length === 1 ? conds[0] : and(...conds);
+  };
+
+  const buildSort = (sortByRaw?: string, sortDirRaw?: string) => {
+    const sortByKey = sortByRaw && SORT_WHITELIST[sortByRaw] ? SORT_WHITELIST[sortByRaw] : 'createdAt';
+    const direction = (sortDirRaw || '').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    return direction === 'asc' ? asc(table[sortByKey]) : desc(table[sortByKey]);
+  };
+
+  const listHandler = async (req: Request, res: Response, baseWhere?: any) => {
     try {
-      const { limit = '50', region, area, type, userId, ...filters } = req.query;
+      const { limit = '50', page = '1', sortBy, sortDir, ...filters } = req.query;
+      const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
+      const pg = Math.max(1, parseInt(String(page), 10) || 1);
+      const offset = (pg - 1) * lmt;
 
-      let whereCondition: any = undefined;
+      const extra = buildWhere(filters);
+      const whereCondition = baseWhere ? (extra ? and(baseWhere, extra) : baseWhere) : extra;
 
-      // Filter by region if provided
-      if (region) {
-        whereCondition = whereCondition 
-          ? and(whereCondition, eq(table.region, region as string))
-          : eq(table.region, region as string);
-      }
+      const orderExpr = buildSort(String(sortBy), String(sortDir));
+      let q = db.select().from(table).orderBy(orderExpr).limit(lmt).offset(offset);
+      if (whereCondition) q = q.where(whereCondition);
 
-      // Filter by area if provided
-      if (area) {
-        whereCondition = whereCondition 
-          ? and(whereCondition, eq(table.area, area as string))
-          : eq(table.area, area as string);
-      }
-
-      // Filter by type if provided
-      if (type) {
-        whereCondition = whereCondition 
-          ? and(whereCondition, eq(table.type, type as string))
-          : eq(table.type, type as string);
-      }
-
-      // Filter by userId if provided
-      if (userId) {
-        whereCondition = whereCondition 
-          ? and(whereCondition, eq(table.userId, parseInt(userId as string)))
-          : eq(table.userId, parseInt(userId as string));
-      }
-
-      let query = db.select().from(table);
-      
-      if (whereCondition) {
-        query = query.where(whereCondition);
-      }
-
-      const records = await query
-        .orderBy(desc(table.createdAt))
-        .limit(parseInt(limit as string));
-
-      res.json({ success: true, data: records });
+      const data = await q;
+      res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s error:`, error);
       res.status(500).json({
@@ -71,56 +148,24 @@ function createAutoCRUD(app: Express, config: {
         details: error instanceof Error ? error.message : 'Unknown error'
       });
     }
-  });
+  };
 
-  // GET BY User ID
-  app.get(`/api/${endpoint}/user/:userId`, async (req: Request, res: Response) => {
-    try {
-      const { userId } = req.params;
-      const { limit = '50', region, area, type } = req.query;
+  // ===== GET ALL =====
+  app.get(`/api/${endpoint}`, (req, res) => listHandler(req, res));
 
-      let whereCondition = eq(table.userId, parseInt(userId));
+  // ===== GET BY USER =====
+  app.get(`/api/${endpoint}/user/:userId`, (req, res) => {
+    const { userId } = req.params;
+    const base = eq(table.userId, parseInt(userId, 10));
+    return listHandler(req, res, base);
+    });
 
-      // Additional filters
-      if (region) {
-        whereCondition = and(whereCondition, eq(table.region, region as string));
-      }
-      if (area) {
-        whereCondition = and(whereCondition, eq(table.area, area as string));
-      }
-      if (type) {
-        whereCondition = and(whereCondition, eq(table.type, type as string));
-      }
-
-      const records = await db.select().from(table)
-        .where(whereCondition)
-        .orderBy(desc(table.createdAt))
-        .limit(parseInt(limit as string));
-
-      res.json({ success: true, data: records });
-    } catch (error) {
-      console.error(`Get ${tableName}s by User error:`, error);
-      res.status(500).json({
-        success: false,
-        error: `Failed to fetch ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  // GET BY ID
+  // ===== GET BY ID =====
   app.get(`/api/${endpoint}/:id`, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const [record] = await db.select().from(table).where(eq(table.id, id)).limit(1);
-
-      if (!record) {
-        return res.status(404).json({
-          success: false,
-          error: `${tableName} not found`
-        });
-      }
-
+      if (!record) return res.status(404).json({ success: false, error: `${tableName} not found` });
       res.json({ success: true, data: record });
     } catch (error) {
       console.error(`Get ${tableName} error:`, error);
@@ -132,81 +177,25 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
-  // GET BY Region
-  app.get(`/api/${endpoint}/region/:region`, async (req: Request, res: Response) => {
-    try {
-      const { region } = req.params;
-      const { limit = '50', area, type } = req.query;
-
-      let whereCondition = eq(table.region, region);
-
-      if (area) {
-        whereCondition = and(whereCondition, eq(table.area, area as string));
-      }
-      if (type) {
-        whereCondition = and(whereCondition, eq(table.type, type as string));
-      }
-
-      const records = await db.select().from(table)
-        .where(whereCondition)
-        .orderBy(desc(table.createdAt))
-        .limit(parseInt(limit as string));
-
-      res.json({ success: true, data: records });
-    } catch (error) {
-      console.error(`Get ${tableName}s by Region error:`, error);
-      res.status(500).json({
-        success: false,
-        error: `Failed to fetch ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
+  // ===== GET BY REGION =====
+  app.get(`/api/${endpoint}/region/:region`, (req, res) => {
+    const base = eq(table.region, String(req.params.region));
+    return listHandler(req, res, base);
   });
 
-  // GET BY Area
-  app.get(`/api/${endpoint}/area/:area`, async (req: Request, res: Response) => {
-    try {
-      const { area } = req.params;
-      const { limit = '50', type, region } = req.query;
-
-      let whereCondition = eq(table.area, area);
-
-      if (region) {
-        whereCondition = and(whereCondition, eq(table.region, region as string));
-      }
-      if (type) {
-        whereCondition = and(whereCondition, eq(table.type, type as string));
-      }
-
-      const records = await db.select().from(table)
-        .where(whereCondition)
-        .orderBy(desc(table.createdAt))
-        .limit(parseInt(limit as string));
-
-      res.json({ success: true, data: records });
-    } catch (error) {
-      console.error(`Get ${tableName}s by Area error:`, error);
-      res.status(500).json({
-        success: false,
-        error: `Failed to fetch ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
+  // ===== GET BY AREA =====
+  app.get(`/api/${endpoint}/area/:area`, (req, res) => {
+    const base = eq(table.area, String(req.params.area));
+    return listHandler(req, res, base);
   });
-
 }
 
-// Function call in the same file - following your exact pattern
 export default function setupDealersRoutes(app: Express) {
-  // 4. Dealers - no date field for filtering
   createAutoCRUD(app, {
     endpoint: 'dealers',
     table: dealers,
     schema: insertDealerSchema,
-    tableName: 'Dealer'
-    // No auto fields needed - all required fields should be provided
-    // No dateField since dealers doesn't have date-based filtering like DVR/TVR
+    tableName: 'Dealer',
   });
-  
-  console.log('✅ Dealers GET endpoints setup complete');
+  console.log('✅ Dealers GET endpoints with brandSelling & no default verification filter ready');
 }

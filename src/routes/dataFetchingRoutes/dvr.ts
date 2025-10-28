@@ -1,85 +1,138 @@
-//  server/src/routes/dataFetchingRoutes/dvr.ts 
-// Daily Visit Reports GET endpoints using createAutoCRUD pattern
+// server/src/routes/dataFetchingRoutes/dvr.ts
+// Daily Visit Reports GET endpoints with pagination, brandSelling filters, date range, pjpId
 
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
-import { dailyVisitReports, insertDailyVisitReportSchema } from '../../db/schema';
-import { eq, and, desc, gte, lte } from 'drizzle-orm';
+import { dailyVisitReports } from '../../db/schema';
 import { z } from 'zod';
+import { and, asc, desc, eq, ilike, sql, gte, lte } from 'drizzle-orm';
+
+type TableLike = typeof dailyVisitReports;
+
+// ---------- helpers ----------
+const numberish = (v: unknown) => {
+  if (v === null || v === undefined || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+const boolish = (v: unknown) => (v === 'true' || v === true) ? true : (v === 'false' || v === false) ? false : undefined;
+
+// normalize brand query to string[]
+function extractBrands(q: any): string[] {
+  const raw = q.brand ?? q.brands ?? q.brandSelling ?? undefined;
+  if (!raw) return [];
+  const arr = Array.isArray(raw)
+    ? raw
+    : String(raw).includes(',')
+      ? String(raw).split(',').map(s => s.trim()).filter(Boolean)
+      : [String(raw).trim()].filter(Boolean);
+  return arr as string[];
+}
+
+// safely convert to a Postgres array literal
+function toPgArrayLiteral(values: string[]): string {
+  return `{${values
+    .map(v =>
+      v
+        .replace(/\\/g, '\\\\')
+        .replace(/{/g, '\\{')
+        .replace(/}/g, '\\}')
+        .trim()
+    )
+    .join(',')}}`;
+}
 
 function createAutoCRUD(app: Express, config: {
   endpoint: string,
-  table: any,
-  schema: z.ZodSchema,
+  table: TableLike,
   tableName: string,
-  autoFields?: { [key: string]: () => any },
-  dateField?: string
+  dateField?: 'reportDate' | 'createdAt' | 'updatedAt'
 }) {
-  const { endpoint, table, schema, tableName, autoFields = {}, dateField } = config;
+  const { endpoint, table, tableName, dateField = 'reportDate' } = config;
 
-  // GET ALL - with optional filtering and date range
+  const SORT_WHITELIST: Record<string, keyof typeof table> = {
+    reportDate: 'reportDate',
+    createdAt: 'createdAt',
+    updatedAt: 'updatedAt',
+  };
+
+  const buildSort = (sortByRaw?: string, sortDirRaw?: string) => {
+    const sortByKey = sortByRaw && SORT_WHITELIST[sortByRaw] ? SORT_WHITELIST[sortByRaw] : dateField;
+    const direction = (sortDirRaw || '').toLowerCase() === 'asc' ? 'asc' : 'desc';
+    return direction === 'asc' ? asc(table[sortByKey]) : desc(table[sortByKey]);
+  };
+
+  // Build WHERE from query params
+  const buildWhere = (q: any) => {
+    const conds: any[] = [];
+
+    // date range on dateField (reportDate default)
+    const startDate = q.startDate as string | undefined;
+    const endDate = q.endDate as string | undefined;
+    if (startDate && endDate) {
+      conds.push(
+        and(
+          gte(table[dateField], startDate),
+          lte(table[dateField], endDate)
+        )
+      );
+    }
+
+    // basic filters
+    const uid = numberish(q.userId);
+    if (uid !== undefined) conds.push(eq(table.userId, uid));
+
+    if (q.dealerType) conds.push(eq(table.dealerType, String(q.dealerType)));
+    if (q.visitType) conds.push(eq(table.visitType, String(q.visitType)));
+    if (q.pjpId) conds.push(eq(table.pjpId, String(q.pjpId)));
+
+    // search across some text columns
+    if (q.search) {
+      const s = `%${String(q.search).trim()}%`;
+      conds.push(
+        sql`(${ilike(table.dealerName, s)} 
+           OR ${ilike(table.subDealerName, s)}
+           OR ${ilike(table.location, s)}
+           OR ${ilike(table.contactPerson, s)}
+           OR ${ilike(table.feedbacks, s)})`
+      );
+    }
+
+    // brandSelling filters
+    const brands = extractBrands(q);
+    if (brands.length) {
+      const arrLiteral = toPgArrayLiteral(brands);
+      const anyBrand = boolish(q.anyBrand); // ?anyBrand=true => overlap; default ALL
+      if (anyBrand) {
+        // overlap
+        conds.push(sql`${table.brandSelling} && ${arrLiteral}::text[]`);
+      } else {
+        // contains all
+        conds.push(sql`${table.brandSelling} @> ${arrLiteral}::text[]`);
+      }
+    }
+
+    if (!conds.length) return undefined;
+    return conds.length === 1 ? conds[0] : and(...conds);
+  };
+
+  // ===== GET ALL =====
   app.get(`/api/${endpoint}`, async (req: Request, res: Response) => {
     try {
-      const { startDate, endDate, limit = '50', userId, dealerType, visitType, ...filters } = req.query;
+      const { limit = '50', page = '1', sortBy, sortDir, ...filters } = req.query;
 
-      let whereCondition: any = undefined;
+      const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
+      const pg = Math.max(1, parseInt(String(page), 10) || 1);
+      const offset = (pg - 1) * lmt;
 
-      // Date range filtering using reportDate
-      if (startDate && endDate && dateField && table[dateField]) {
-        whereCondition = and(
-          gte(table[dateField], startDate as string),
-          lte(table[dateField], endDate as string)
-        );
-      }
+      const whereCondition = buildWhere(filters);
+      const orderExpr = buildSort(String(sortBy), String(sortDir));
 
-      // Filter by userId
-      if (userId) {
-        whereCondition = whereCondition 
-          ? and(whereCondition, eq(table.userId, parseInt(userId as string)))
-          : eq(table.userId, parseInt(userId as string));
-      }
+      let q = db.select().from(table).orderBy(orderExpr).limit(lmt).offset(offset);
+      if (whereCondition) q = q.where(whereCondition);
 
-      // Filter by dealerType
-      if (dealerType) {
-        whereCondition = whereCondition 
-          ? and(whereCondition, eq(table.dealerType, dealerType as string))
-          : eq(table.dealerType, dealerType as string);
-      }
-
-      // Filter by visitType
-      if (visitType) {
-        whereCondition = whereCondition 
-          ? and(whereCondition, eq(table.visitType, visitType as string))
-          : eq(table.visitType, visitType as string);
-      }
-
-      // Additional filters
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value && table[key]) {
-          if (key === 'userId') {
-            whereCondition = whereCondition
-              ? and(whereCondition, eq(table[key], parseInt(value as string)))
-              : eq(table[key], parseInt(value as string));
-          } else {
-            whereCondition = whereCondition
-              ? and(whereCondition, eq(table[key], value))
-              : eq(table[key], value);
-          }
-        }
-      });
-
-      let query = db.select().from(table);
-      
-      if (whereCondition) {
-        query = query.where(whereCondition);
-      }
-
-      const orderField = table[dateField] || table.createdAt;
-      const records = await query
-        .orderBy(desc(orderField))
-        .limit(parseInt(limit as string));
-
-      res.json({ success: true, data: records });
+      const data = await q;
+      res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s error:`, error);
       res.status(500).json({
@@ -90,37 +143,29 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
-  // GET BY User ID
+  // ===== GET BY USER =====
   app.get(`/api/${endpoint}/user/:userId`, async (req: Request, res: Response) => {
     try {
       const { userId } = req.params;
-      const { startDate, endDate, limit = '50', dealerType, visitType } = req.query;
+      const { limit = '50', page = '1', sortBy, sortDir, ...rest } = req.query;
 
-      let whereCondition = eq(table.userId, parseInt(userId));
+      const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
+      const pg = Math.max(1, parseInt(String(page), 10) || 1);
+      const offset = (pg - 1) * lmt;
 
-      // Date range filtering
-      if (startDate && endDate && dateField && table[dateField]) {
-        whereCondition = and(
-          whereCondition,
-          gte(table[dateField], startDate as string),
-          lte(table[dateField], endDate as string)
-        );
-      }
+      const base = eq(table.userId, parseInt(userId, 10));
+      const extra = buildWhere(rest);
+      const whereCondition = extra ? and(base, extra) : base;
 
-      if (dealerType) {
-        whereCondition = and(whereCondition, eq(table.dealerType, dealerType as string));
-      }
-      if (visitType) {
-        whereCondition = and(whereCondition, eq(table.visitType, visitType as string));
-      }
+      const orderExpr = buildSort(String(sortBy), String(sortDir));
 
-      const orderField = table[dateField] || table.createdAt;
-      const records = await db.select().from(table)
+      const data = await db.select().from(table)
         .where(whereCondition)
-        .orderBy(desc(orderField))
-        .limit(parseInt(limit as string));
+        .orderBy(orderExpr)
+        .limit(lmt)
+        .offset(offset);
 
-      res.json({ success: true, data: records });
+      res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s by User error:`, error);
       res.status(500).json({
@@ -131,19 +176,12 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
-  // GET BY ID
+  // ===== GET BY ID =====
   app.get(`/api/${endpoint}/:id`, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const [record] = await db.select().from(table).where(eq(table.id, id)).limit(1);
-
-      if (!record) {
-        return res.status(404).json({
-          success: false,
-          error: `${tableName} not found`
-        });
-      }
-
+      if (!record) return res.status(404).json({ success: false, error: `${tableName} not found` });
       res.json({ success: true, data: record });
     } catch (error) {
       console.error(`Get ${tableName} error:`, error);
@@ -155,37 +193,29 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
-  // GET BY Visit Type
+  // ===== GET BY VISIT TYPE =====
   app.get(`/api/${endpoint}/visit-type/:visitType`, async (req: Request, res: Response) => {
     try {
       const { visitType } = req.params;
-      const { startDate, endDate, limit = '50', userId, dealerType } = req.query;
+      const { limit = '50', page = '1', sortBy, sortDir, ...rest } = req.query;
 
-      let whereCondition = eq(table.visitType, visitType);
+      const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
+      const pg = Math.max(1, parseInt(String(page), 10) || 1);
+      const offset = (pg - 1) * lmt;
 
-      // Date range filtering
-      if (startDate && endDate && dateField && table[dateField]) {
-        whereCondition = and(
-          whereCondition,
-          gte(table[dateField], startDate as string),
-          lte(table[dateField], endDate as string)
-        );
-      }
+      const base = eq(table.visitType, visitType);
+      const extra = buildWhere(rest);
+      const whereCondition = extra ? and(base, extra) : base;
 
-      if (userId) {
-        whereCondition = and(whereCondition, eq(table.userId, parseInt(userId as string)));
-      }
-      if (dealerType) {
-        whereCondition = and(whereCondition, eq(table.dealerType, dealerType as string));
-      }
+      const orderExpr = buildSort(String(sortBy), String(sortDir));
 
-      const orderField = table[dateField] || table.createdAt;
-      const records = await db.select().from(table)
+      const data = await db.select().from(table)
         .where(whereCondition)
-        .orderBy(desc(orderField))
-        .limit(parseInt(limit as string));
+        .orderBy(orderExpr)
+        .limit(lmt)
+        .offset(offset);
 
-      res.json({ success: true, data: records });
+      res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s by Visit Type error:`, error);
       res.status(500).json({
@@ -196,21 +226,46 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
+  // ===== GET BY PJP ===== (handy for linking Sales Orders to a plan’s DVRs)
+  app.get(`/api/${endpoint}/pjp/:pjpId`, async (req: Request, res: Response) => {
+    try {
+      const { pjpId } = req.params;
+      const { limit = '50', page = '1', sortBy, sortDir, ...rest } = req.query;
+
+      const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
+      const pg = Math.max(1, parseInt(String(page), 10) || 1);
+      const offset = (pg - 1) * lmt;
+
+      const base = eq(table.pjpId, pjpId);
+      const extra = buildWhere(rest);
+      const whereCondition = extra ? and(base, extra) : base;
+
+      const orderExpr = buildSort(String(sortBy), String(sortDir));
+
+      const data = await db.select().from(table)
+        .where(whereCondition)
+        .orderBy(orderExpr)
+        .limit(lmt)
+        .offset(offset);
+
+      res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
+    } catch (error) {
+      console.error(`Get ${tableName}s by PJP error:`, error);
+      res.status(500).json({
+        success: false,
+        error: `Failed to fetch ${tableName}s`,
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
 }
 
-// Function call in the same file
 export default function setupDailyVisitReportsRoutes(app: Express) {
-  // Daily Visit Reports - date field for filtering
   createAutoCRUD(app, {
     endpoint: 'daily-visit-reports',
     table: dailyVisitReports,
-    schema: insertDailyVisitReportSchema,
     tableName: 'Daily Visit Report',
     dateField: 'reportDate',
-    autoFields: {
-      reportDate: () => new Date().toISOString().split('T')[0] // date type
-    }
   });
-  
-  console.log('✅ Daily Visit Reports GET endpoints setup complete');
+  console.log('✅ Daily Visit Reports GET endpoints ready');
 }
