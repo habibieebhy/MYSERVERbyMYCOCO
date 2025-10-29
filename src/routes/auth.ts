@@ -6,7 +6,10 @@ import { Request, Response, Express, NextFunction } from 'express';
 import { db } from '../db/db';
 import { users, companies } from '../db/schema';
 import { eq, or } from 'drizzle-orm';
-import * as jwt from 'jsonwebtoken';
+// --- (FIX) ---
+// Changed the import from 'import * as jwt' to import only what we need
+import { sign, verify } from 'jsonwebtoken';
+// --- (END FIX) ---
 
 // Helper function to safely convert BigInt to JSON
 function toJsonSafe(obj: any): any {
@@ -30,7 +33,10 @@ const verifyToken = (req: Request, res: Response, next: NextFunction) => {
      return res.status(500).json({ error: "Server configuration error" });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET, (err: any, user: any) => {
+  // --- (FIX) ---
+  // Changed 'jwt.verify' to just 'verify'
+  verify(token, process.env.JWT_SECRET, (err: any, user: any) => {
+  // --- (END FIX) ---
     if (err) {
       console.error("JWT Verification Error:", err.message);
       // Your app expects a 403 for this
@@ -82,7 +88,10 @@ export default function setupAuthRoutes(app: Express) {
 
       // --- Create the Token ---
       const payload = { id: row.id, email: row.email, role: row.role };
-      const token = jwt.sign(
+      // --- (FIX) ---
+      // Changed 'jwt.sign' to just 'sign'
+      const token = sign(
+      // --- (END FIX) ---
         payload, 
         process.env.JWT_SECRET, 
         { expiresIn: '7d' }
