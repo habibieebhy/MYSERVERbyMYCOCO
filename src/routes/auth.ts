@@ -7,8 +7,9 @@ import { db } from '../db/db';
 import { users, companies } from '../db/schema';
 import { eq, or } from 'drizzle-orm';
 // --- (FIX) ---
-// Changed the import from 'import * as jwt' to import only what we need
-import { sign, verify } from 'jsonwebtoken';
+// Changed the import to be compatible with CommonJS modules as per the server log
+import pkg from 'jsonwebtoken';
+const { sign, verify } = pkg;
 // --- (END FIX) ---
 
 // Helper function to safely convert BigInt to JSON
