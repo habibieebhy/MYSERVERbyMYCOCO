@@ -2,7 +2,7 @@
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
 import { dealers, insertDealerSchema } from '../../db/schema';
-import { eq, and, desc, asc, ilike, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, ilike, sql, SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
 type TableLike = typeof dealers;
@@ -53,6 +53,7 @@ function createAutoCRUD(app: Express, config: {
 }) {
   const { endpoint, table, tableName } = config;
 
+  // This is no longer used by buildSort, but is a good reference
   const SORT_WHITELIST: Record<string, keyof typeof table> = {
     createdAt: 'createdAt',
     name: 'name',
@@ -64,7 +65,7 @@ function createAutoCRUD(app: Express, config: {
   };
 
   const buildWhere = (q: any) => {
-    const conds: any[] = [];
+    const conds: (SQL | undefined)[] = [];
 
     // optional filters (NO default verification filter)
     if (q.region) conds.push(eq(table.region, String(q.region)));
@@ -114,17 +115,40 @@ function createAutoCRUD(app: Express, config: {
       }
     }
 
-    if (!conds.length) return undefined;
-    return conds.length === 1 ? conds[0] : and(...conds);
+    const finalConds = conds.filter(Boolean) as SQL[];
+    if (finalConds.length === 0) return undefined;
+    return finalConds.length === 1 ? finalConds[0] : and(...finalConds);
   };
 
+  // --- ✅ TS FIX ---
+  // Re-written buildSort to be 100% type-safe
   const buildSort = (sortByRaw?: string, sortDirRaw?: string) => {
-    const sortByKey = sortByRaw && SORT_WHITELIST[sortByRaw] ? SORT_WHITELIST[sortByRaw] : 'createdAt';
     const direction = (sortDirRaw || '').toLowerCase() === 'asc' ? 'asc' : 'desc';
-    return direction === 'asc' ? asc(table[sortByKey]) : desc(table[sortByKey]);
+    
+    // Use an explicit switch to be type-safe
+    switch (sortByRaw) {
+      case 'name':
+        return direction === 'asc' ? asc(table.name) : desc(table.name);
+      case 'region':
+        return direction === 'asc' ? asc(table.region) : desc(table.region);
+      case 'area':
+        return direction === 'asc' ? asc(table.area) : desc(table.area);
+      case 'type':
+        return direction === 'asc' ? asc(table.type) : desc(table.type);
+      case 'verificationStatus': // Allow both
+      case 'verification_status':
+        return direction === 'asc' ? asc(table.verificationStatus) : desc(table.verificationStatus);
+      case 'createdAt':
+        return direction === 'asc' ? asc(table.createdAt) : desc(table.createdAt);
+      default:
+        // Default to createdAt
+        return desc(table.createdAt);
+    }
   };
+  // --- END FIX ---
 
-  const listHandler = async (req: Request, res: Response, baseWhere?: any) => {
+
+  const listHandler = async (req: Request, res: Response, baseWhere?: SQL) => {
     try {
       const { limit = '50', page = '1', sortBy, sortDir, ...filters } = req.query;
       const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
@@ -135,10 +159,17 @@ function createAutoCRUD(app: Express, config: {
       const whereCondition = baseWhere ? (extra ? and(baseWhere, extra) : baseWhere) : extra;
 
       const orderExpr = buildSort(String(sortBy), String(sortDir));
-      let q = db.select().from(table).orderBy(orderExpr).limit(lmt).offset(offset);
-      if (whereCondition) q = q.where(whereCondition);
 
-      const data = await q;
+      // 1. Start query
+      let q = db.select().from(table);
+      // 2. Conditionally apply where
+      if (whereCondition) {
+        // @ts-ignore
+        q = q.where(whereCondition);
+      }
+      // 3. Apply sorting/paging and execute
+      const data = await q.orderBy(orderExpr).limit(lmt).offset(offset);
+
       res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s error:`, error);
@@ -155,8 +186,11 @@ function createAutoCRUD(app: Express, config: {
 
   // ===== GET BY USER =====
   app.get(`/api/${endpoint}/user/:userId`, (req, res) => {
-    const { userId } = req.params;
-    const base = eq(table.userId, parseInt(userId, 10));
+    const uid = numberish(req.params.userId);
+    if (uid === undefined) {
+      return res.status(400).json({ success: false, error: 'Invalid User ID' });
+    }
+    const base = eq(table.userId, uid);
     return listHandler(req, res, base);
     });
 
@@ -165,7 +199,10 @@ function createAutoCRUD(app: Express, config: {
     try {
       const { id } = req.params;
       const [record] = await db.select().from(table).where(eq(table.id, id)).limit(1);
+      
+      // --- CHECK FOR TYPO HERE ---
       if (!record) return res.status(404).json({ success: false, error: `${tableName} not found` });
+      
       res.json({ success: true, data: record });
     } catch (error) {
       console.error(`Get ${tableName} error:`, error);

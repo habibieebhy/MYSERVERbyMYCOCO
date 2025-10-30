@@ -6,6 +6,7 @@ import { db } from '../../db/db';
 import { dealers } from '../../db/schema';
 import { z } from 'zod';
 import { InferInsertModel, eq } from 'drizzle-orm';
+import { randomUUID } from 'crypto'; // Use crypto for UUID
 
 type DealerInsert = InferInsertModel<typeof dealers>;
 
@@ -33,20 +34,37 @@ const strOrNull = z.preprocess((val) => {
 // empty string -> null for dates (and coerce)
 const dateOrNull = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return null;
-  return val;
-}, z.coerce.date().nullable().optional());
+  try {
+    return new Date(String(val));
+  } catch {
+    return null;
+  }
+}, z.date().nullable().optional());
 
 // number (coerced) nullable, empty string -> null
 const numOrNull = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return null;
-  return val;
-}, z.coerce.number().nullable().optional());
+  const n = Number(val);
+  return isNaN(n) ? null : n;
+}, z.number().nullable().optional());
 
 // int (coerced) nullable
 const intOrNull = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return null;
-  return val;
-}, z.coerce.number().int().nullable().optional());
+  const n = parseInt(String(val), 10);
+  return isNaN(n) ? null : n;
+}, z.number().int().nullable().optional());
+
+// --- ✅ NEW HELPER ---
+// Converts Date | null to "YYYY-MM-DD" | null
+const toDateOnlyString = (d: Date | null | undefined): string | null => {
+  if (!d) return null;
+  try {
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return null;
+  }
+};
 
 // -------- input schema (coercing everything safely) --------
 const dealerInputSchema = z.object({
@@ -67,18 +85,25 @@ const dealerInputSchema = z.object({
   dateOfBirth: dateOrNull,
   anniversaryDate: dateOrNull,
 
-  totalPotential: z.coerce.number(),
-  bestPotential: z.coerce.number(),
-  brandSelling: z.preprocess(toStringArray, z.array(z.string()).default([])),
+  totalPotential: z.coerce.number(), // Required
+  bestPotential: z.coerce.number(),  // Required
+  brandSelling: z.preprocess(toStringArray, z.array(z.string()).min(1, "brandSelling is required")), // Required
 
   feedbacks: z.string().min(1),
   remarks: strOrNull,
 
-  verificationStatus: z.enum(['PENDING', 'VERIFIED']).optional(),
+  // --- ✅ ADDED MISSING FIELDS ---
+  dealerDevelopmentStatus: strOrNull,
+  dealerDevelopmentObstacle: strOrNull,
+  salesGrowthPercentage: numOrNull,
+  noOfPJP: intOrNull,
+  // -----------------------------
+
+  verificationStatus: z.enum(['PENDING', 'VERIFIED']).default('PENDING').optional(),
 
   // IDs & contacts
   whatsappNo: strOrNull,
-  emailId: z.preprocess((val) => (val === '' ? null : val), z.string().email().nullable().optional()).or(z.literal(undefined)),
+  emailId: z.preprocess((val) => (val === '' ? null : val), z.string().email().nullable().optional()),
   businessType: strOrNull,
   gstinNo: strOrNull,
   panNo: strOrNull,
@@ -130,9 +155,9 @@ const dealerInputSchema = z.object({
   blankChequePicUrl: strOrNull,
   partnershipDeedPicUrl: strOrNull,
 
-  // Geofence
+  // Geofence (not part of DB, just for Radar)
   radius: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().min(10).max(10000).optional()),
-});
+}).strict(); // Use .strict() to catch extra fields
 
 function createAutoCRUD(
   app: Express,
@@ -154,12 +179,13 @@ function createAutoCRUD(
         return res.status(400).json({
           success: false,
           error: 'latitude and longitude are required to create the geofence',
+          details: [{ field: 'latitude', message: 'Required' }, { field: 'longitude', message: 'Required' }]
         });
       }
 
       // 2) Map to DB insert object
-      const now = new Date();
-      const finalData: DealerInsert = {
+      // --- ✅ FIXED: Convert numbers/Dates to strings for Drizzle ---
+      const finalData: Omit<DealerInsert, 'id' | 'createdAt' | 'updatedAt'> = {
         userId: input.userId ?? null,
         type: input.type,
         parentDealerId: input.parentDealerId ?? null,
@@ -170,22 +196,29 @@ function createAutoCRUD(
         address: input.address,
         pinCode: input.pinCode ?? null,
 
-        latitude: input.latitude!,
-        longitude: input.longitude!,
+        latitude: String(input.latitude!),
+        longitude: String(input.longitude!),
 
-        dateOfBirth: input.dateOfBirth ?? null,
-        anniversaryDate: input.anniversaryDate ?? null,
+        dateOfBirth: toDateOnlyString(input.dateOfBirth),
+        anniversaryDate: toDateOnlyString(input.anniversaryDate),
 
-        totalPotential: input.totalPotential,
-        bestPotential: input.bestPotential,
+        totalPotential: String(input.totalPotential),
+        bestPotential: String(input.bestPotential),
         brandSelling: input.brandSelling,
 
         feedbacks: input.feedbacks,
         remarks: input.remarks ?? null,
 
+        // --- ✅ ADDED MISSING FIELDS ---
+        dealerDevelopmentStatus: input.dealerDevelopmentStatus ?? null,
+        dealerDevelopmentObstacle: input.dealerDevelopmentObstacle ?? null,
+        salesGrowthPercentage: input.salesGrowthPercentage ? String(input.salesGrowthPercentage) : null,
+        noOfPJP: input.noOfPJP ?? null,
+        // -----------------------------
+
         verificationStatus: input.verificationStatus ?? 'PENDING',
         whatsappNo: input.whatsappNo ?? null,
-        emailId: (input as any).emailId ?? null,
+        emailId: input.emailId ?? null,
         businessType: input.businessType ?? null,
         gstinNo: input.gstinNo ?? null,
         panNo: input.panNo ?? null,
@@ -219,16 +252,18 @@ function createAutoCRUD(
 
         // Sales & promoter
         brandName: input.brandName ?? null,
-        monthlySaleMT: input.monthlySaleMT ?? null,
+        monthlySaleMT: input.monthlySaleMT ? String(input.monthlySaleMT) : null,
         noOfDealers: input.noOfDealers ?? null,
         areaCovered: input.areaCovered ?? null,
-        projectedMonthlySalesBestCementMT: input.projectedMonthlySalesBestCementMT ?? null,
+        projectedMonthlySalesBestCementMT: input.projectedMonthlySalesBestCementMT 
+          ? String(input.projectedMonthlySalesBestCementMT) 
+          : null,
         noOfEmployeesInSales: input.noOfEmployeesInSales ?? null,
 
         // Declaration
         declarationName: input.declarationName ?? null,
         declarationPlace: input.declarationPlace ?? null,
-        declarationDate: input.declarationDate ?? null,
+        declarationDate: toDateOnlyString(input.declarationDate),
 
         // Docs
         tradeLicencePicUrl: input.tradeLicencePicUrl ?? null,
@@ -236,13 +271,15 @@ function createAutoCRUD(
         dealerPicUrl: input.dealerPicUrl ?? null,
         blankChequePicUrl: input.blankChequePicUrl ?? null,
         partnershipDeedPicUrl: input.partnershipDeedPicUrl ?? null,
-
-        createdAt: now as any,
-        updatedAt: now as any,
       };
 
       // 3) Insert (need ID for Radar externalId)
-      const [dealer] = await db.insert(table).values(finalData).returning();
+      // Use app-generated UUID
+      const dealerId = randomUUID();
+      const [dealer] = await db
+        .insert(table)
+        .values({ ...finalData, id: dealerId })
+        .returning();
 
       // 4) Radar upsert
       const tag = 'dealer';
@@ -250,7 +287,7 @@ function createAutoCRUD(
       const radarUrl = `https://api.radar.io/v1/geofences/${encodeURIComponent(tag)}/${encodeURIComponent(externalId)}`;
 
       const description = String(dealer.name ?? `Dealer ${dealer.id}`).slice(0, 120);
-      const radius = input.radius ?? 25;
+      const radius = input.radius ?? 25; // Default 25m radius
 
       const form = new URLSearchParams();
       form.set('description', description);
@@ -280,17 +317,19 @@ function createAutoCRUD(
 
       const upJson = await upRes.json().catch(() => ({} as any));
       if (!upRes.ok || upJson?.meta?.code !== 200 || !upJson?.geofence) {
-        await db.delete(table).where(eq(table.id, dealer.id)); // rollback
-        return res.status(400).json({
+        // --- Rollback DB insert on Radar failure ---
+        await db.delete(table).where(eq(table.id, dealer.id)); 
+        return res.status(502).json({ // 502 Bad Gateway
           success: false,
           error: upJson?.meta?.message || upJson?.message || 'Failed to upsert dealer geofence in Radar',
+          details: 'Database insert was rolled back.'
         });
       }
 
       // 5) OK
-      return res.json({
+      return res.status(201).json({
         success: true,
-        data: dealer, // includes verificationStatus
+        data: dealer, 
         message: `${tableName} created and geofence upserted`,
         geofenceRef: {
           id: upJson.geofence._id,
@@ -302,7 +341,15 @@ function createAutoCRUD(
     } catch (error) {
       console.error(`Create ${tableName} error:`, error);
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ success: false, error: 'Validation failed', details: error.issues });
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Validation failed', 
+          details: error.issues.map(i => ({
+            field: i.path.join('.'),
+            message: i.message,
+            code: i.code,
+          })) 
+        });
       }
       return res.status(500).json({
         success: false,

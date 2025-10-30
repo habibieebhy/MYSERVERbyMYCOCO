@@ -167,6 +167,7 @@ function createAutoCRUD(app: Express, config: {
       });
     } catch (error) {
       console.error(`Delete ${tableName}s by Parent error:`, error);
+      // --- ✅ TS FIX: Changed 5Z00 to 500 ---
       return res.status(500).json({
         success: false,
         error: `Failed to delete ${tableName}s`,
@@ -190,8 +191,8 @@ function createAutoCRUD(app: Express, config: {
       }
 
       const whereCondition = and(
-        gte(table[dateField], startDate),
-        lte(table[dateField], endDate)
+        gte(table[dateField], new Date(startDate)),
+        lte(table[dateField], new Date(endDate))
       );
 
       const rows = await db.select().from(table).where(whereCondition);

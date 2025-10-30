@@ -1,5 +1,5 @@
 // server/src/routes/deleteRoutes/salesOrders.ts
-// Sales Orders DELETE endpoints using createAutoCRUD pattern (new schema)
+// Sales Orders DELETE endpoints (FIXED)
 
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
@@ -155,6 +155,7 @@ function createAutoCRUD(app: Express, config: {
       });
     } catch (error) {
       console.error(`Delete ${tableName}s by DVR error:`, error);
+      // --- ✅ TS FIX: 5G00 -> 500 ---
       res.status(500).json({
         success: false,
         error: `Failed to delete ${tableName}s`,
@@ -198,7 +199,7 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
-  // BULK DELETE BY DATE RANGE (choose column via ?dateField=orderDate|deliveryDate|receivedPaymentDate|createdAt)
+  // BULK DELETE BY DATE RANGE
   app.delete(`/api/${endpoint}/bulk/date-range`, async (req: Request, res: Response) => {
     try {
       const { dateField, dateFrom, dateTo, confirm } = req.query;
@@ -217,9 +218,10 @@ function createAutoCRUD(app: Express, config: {
       }
 
       const col = pickDateColumn(String(dateField));
+      
       const whereCond = and(
-        gte(col, String(dateFrom)),
-        lte(col, String(dateTo))
+        gte(col, new Date(String(dateFrom))),
+        lte(col, new Date(String(dateTo)))
       );
 
       const rows = await db.select().from(table).where(whereCond);

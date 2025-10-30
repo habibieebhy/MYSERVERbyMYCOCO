@@ -9,6 +9,7 @@ import { z } from 'zod';
 
 // helpers
 const toDateOnly = (d: Date) => d.toISOString().slice(0, 10); // YYYY-MM-DD
+// Helper to convert empty strings to null, leaves other values alone
 const emptyToNull = (s: unknown) =>
   typeof s === 'string' && s.trim() === '' ? null : (s as string | null);
 
@@ -18,8 +19,14 @@ const pjpPatchSchema = z.object({
   createdById: z.coerce.number().int().positive().optional(),
   planDate: z.coerce.date().optional(),           // coerced, later normalized
   areaToBeVisited: z.string().max(500).optional(),
-  description: z.string().optional().nullable(),  // we'll empty->null below
+  description: z.string().max(500).optional().nullable(),
   status: z.string().max(50).optional(),
+
+  // --- ADDED MISSING FIELDS ---
+  visitDealerName: z.string().max(255).optional().nullable(),
+  verificationStatus: z.string().max(50).optional().nullable(),
+  additionalVisitRemarks: z.string().max(500).optional().nullable(),
+
 }).strict();
 
 export default function setupPjpPatchRoutes(app: Express) {
@@ -38,7 +45,7 @@ export default function setupPjpPatchRoutes(app: Express) {
 
       // 2) ensure exists
       const [existing] = await db
-        .select()
+        .select({ id: permanentJourneyPlans.id }) // Only select one column for efficiency
         .from(permanentJourneyPlans)
         .where(eq(permanentJourneyPlans.id, id))
         .limit(1);
@@ -55,20 +62,16 @@ export default function setupPjpPatchRoutes(app: Express) {
 
       if (input.userId !== undefined) patch.userId = input.userId;
       if (input.createdById !== undefined) patch.createdById = input.createdById;
-
-      if (input.planDate !== undefined) {
-        // normalize to DATE-only for Postgres DATE column
-        patch.planDate = toDateOnly(input.planDate);
-      }
-
+      if (input.planDate !== undefined) patch.planDate = toDateOnly(input.planDate);
       if (input.areaToBeVisited !== undefined) patch.areaToBeVisited = input.areaToBeVisited;
-
-      if (input.description !== undefined) {
-        patch.description = emptyToNull(input.description ?? null);
-      }
-
       if (input.status !== undefined) patch.status = input.status;
 
+      // Handle nullable string fields
+      if (input.description !== undefined) patch.description = emptyToNull(input.description);
+      if (input.visitDealerName !== undefined) patch.visitDealerName = emptyToNull(input.visitDealerName);
+      if (input.verificationStatus !== undefined) patch.verificationStatus = emptyToNull(input.verificationStatus);
+      if (input.additionalVisitRemarks !== undefined) patch.additionalVisitRemarks = emptyToNull(input.additionalVisitRemarks);
+      
       patch.updatedAt = new Date(); // always touch updatedAt
 
       // 4) update

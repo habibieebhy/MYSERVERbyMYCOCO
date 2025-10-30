@@ -5,6 +5,8 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
+// Assuming you have crypto available, as in your original file
+import crypto from "crypto";
 
 /* ========================= companies ========================= */
 export const companies = pgTable("companies", {
@@ -49,10 +51,52 @@ export const users = pgTable("users", {
   // Hierarchy
   // Drizzle needs this slightly loose typing for self-ref
   reportsToId: integer("reports_to_id").references((): any => users.id, { onDelete: "set null" }),
+
+  // --- ADDED FOR PRISMA PARITY ---
+  noOfPJP: integer("no_of_pjp"),
+  
 }, (t) => [
   uniqueIndex("users_companyid_email_unique").on(t.companyId, t.email),
   index("idx_user_company_id").on(t.companyId),
   index("idx_workos_user_id").on(t.workosUserId),
+]);
+
+/* ========================= tso_meetings (Moved up) ========================= */
+// Moved before technicalVisitReports because it's referenced
+export const tsoMeetings = pgTable("tso_meetings", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  type: varchar("type", { length: 100 }).notNull(), // e.g., "Head Mason Meet"
+  date: date("date").notNull(),
+  location: varchar("location", { length: 500 }).notNull(),
+  budgetAllocated: numeric("budget_allocated", { precision: 12, scale: 2 }),
+  participantsCount: integer("participants_count"),
+  createdByUserId: integer("created_by_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
+}, (t) => [
+  index("idx_tso_meetings_created_by_user_id").on(t.createdByUserId),
+]);
+
+/* ========================= permanent_journey_plans ========================= */
+export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
+  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
+  userId: integer("user_id").notNull().references(() => users.id),
+  createdById: integer("created_by_id").notNull().references(() => users.id),
+  planDate: date("plan_date").notNull(),
+  areaToBeVisited: varchar("area_to_be_visited", { length: 500 }).notNull(),
+  description: varchar("description", { length: 500 }),
+  status: varchar("status", { length: 50 }).notNull(),
+
+  // --- ADDED FOR PRISMA PARITY ---
+  visitDealerName: varchar("visit_dealer_name", { length: 255 }),
+  verificationStatus: varchar("verification_status", { length: 50 }),
+  additionalVisitRemarks: varchar("additional_visit_remarks", { length: 500 }),
+
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+}, (t) => [
+  index("idx_permanent_journey_plans_user_id").on(t.userId),
+  index("idx_permanent_journey_plans_created_by_id").on(t.createdById),
 ]);
 
 /* ========================= daily_visit_reports ========================= */
@@ -121,7 +165,7 @@ export const technicalVisitReports = pgTable("technical_visit_reports", {
   siteVisitType: varchar("site_visit_type", { length: 50 }),
   dhalaiVerificationCode: varchar("dhalai_verification_code", { length: 50 }),
   isVerificationStatus: varchar("is_verification_status", { length: 50 }),
-  meetingId: varchar("meeting_id", { length: 255 }).references(() => tsoMeetings.id),
+  meetingId: varchar("meeting_id", { length: 255 }).references(() => tsoMeetings.id), // This now correctly references tsoMeetings
   pjpId: varchar("pjp_id", { length: 255 }).references(() => permanentJourneyPlans.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
@@ -129,22 +173,6 @@ export const technicalVisitReports = pgTable("technical_visit_reports", {
   index("idx_technical_visit_reports_user_id").on(t.userId),
   index("idx_technical_visit_reports_meeting_id").on(t.meetingId),
   index("idx_technical_visit_reports_pjp_id").on(t.pjpId),
-]);
-
-/* ========================= permanent_journey_plans ========================= */
-export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
-  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
-  userId: integer("user_id").notNull().references(() => users.id),
-  createdById: integer("created_by_id").notNull().references(() => users.id),
-  planDate: date("plan_date").notNull(),
-  areaToBeVisited: varchar("area_to_be_visited", { length: 500 }).notNull(),
-  description: varchar("description", { length: 500 }),
-  status: varchar("status", { length: 50 }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
-}, (t) => [
-  index("idx_permanent_journey_plans_user_id").on(t.userId),
-  index("idx_permanent_journey_plans_created_by_id").on(t.createdById),
 ]);
 
 /* ========================= dealers (extended to match Prisma) ========================= */
@@ -168,6 +196,13 @@ export const dealers = pgTable("dealers", {
   brandSelling: text("brand_selling").array().notNull(),
   feedbacks: varchar("feedbacks", { length: 500 }).notNull(),
   remarks: varchar("remarks", { length: 500 }),
+
+  // --- ADDED FOR PRISMA PARITY ---
+  dealerDevelopmentStatus: varchar("dealerdevelopmentstatus", { length: 255 }),
+  dealerDevelopmentObstacle: varchar("dealerdevelopmentobstacle", { length: 255 }),
+  salesGrowthPercentage: numeric("sales_growth_percentage", { precision: 5, scale: 2 }),
+  noOfPJP: integer("no_of_pjp"),
+  // -----------------------------
 
   // Verification & IDs
   verificationStatus: varchar("verification_status", { length: 50 }).notNull().default("PENDING"),
@@ -452,23 +487,15 @@ export const dealerBrandMapping = pgTable("dealer_brand_mapping", {
   dealerId: varchar("dealer_id", { length: 255 }).notNull().references(() => dealers.id),
   brandId: integer("brand_id").notNull().references(() => brands.id),
   capacityMT: numeric("capacity_mt", { precision: 12, scale: 2 }).notNull(),
+
+  // --- ADDED FOR PRISMA PARITY ---
+  bestCapacityMT: numeric("best_capacity_mt", { precision: 12, scale: 2 }),
+  brandGrowthCapacityPercent: numeric("brand_growth_capacity_percent", { precision: 5, scale: 2 }),
+  userId: integer("user_id").references(() => users.id),
+  // -----------------------------
+
 }, (t) => [
   uniqueIndex("dealer_brand_mapping_dealer_id_brand_id_unique").on(t.dealerId, t.brandId),
-]);
-
-/* ========================= tso_meetings (new) ========================= */
-export const tsoMeetings = pgTable("tso_meetings", {
-  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
-  type: varchar("type", { length: 100 }).notNull(), // e.g., "Head Mason Meet"
-  date: date("date").notNull(),
-  location: varchar("location", { length: 500 }).notNull(),
-  budgetAllocated: numeric("budget_allocated", { precision: 12, scale: 2 }),
-  participantsCount: integer("participants_count"),
-  createdByUserId: integer("created_by_user_id").notNull().references(() => users.id),
-  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
-}, (t) => [
-  index("idx_tso_meetings_created_by_user_id").on(t.createdByUserId),
 ]);
 
 /* ========================= gift_inventory (new) ========================= */

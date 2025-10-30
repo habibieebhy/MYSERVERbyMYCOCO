@@ -9,7 +9,8 @@ import { randomUUID } from 'crypto';
 
 // --- helpers ---
 const toDateOnly = (d: Date) => d.toISOString().slice(0, 10);
-const nullableString = z.string().transform(s => (s.trim() === '' ? null : s)).optional().nullable();
+// Helper for strings that can be empty ("") or null, and should be stored as null.
+const toNullableString = (s: string) => (s.trim() === '' ? null : s);
 
 // --- input schema (matches table + coercions) ---
 const pjpInputSchema = z.object({
@@ -17,9 +18,20 @@ const pjpInputSchema = z.object({
   createdById: z.coerce.number().int().positive(),
   planDate: z.coerce.date(),                         // normalize to YYYY-MM-DD
   areaToBeVisited: z.string().max(500),
-  description: nullableString,                       // "" -> null
+  
+  // --- FIXED: Explicit definitions for nullable strings ---
+  description: z.string().max(500).transform(toNullableString).optional().nullable(),
   status: z.string().max(50).optional().default('pending'),
+
+  // --- ADDED MISSING FIELDS (and fixed) ---
+  visitDealerName: z.string().max(255).transform(toNullableString).optional().nullable(),
+  verificationStatus: z.string().max(50).transform(toNullableString).optional().nullable(),
+  additionalVisitRemarks: z.string().max(500).transform(toNullableString).optional().nullable(),
+
 }).strict();
+
+// --- FIXED: Use z.infer to get the output type ---
+type PjpInput = z.infer<typeof pjpInputSchema>;
 
 function createAutoCRUD(app: Express, config: {
   endpoint: string,
@@ -31,21 +43,28 @@ function createAutoCRUD(app: Express, config: {
   app.post(`/api/${endpoint}`, async (req: Request, res: Response) => {
     try {
       // 1) validate + coerce
-      const input = pjpInputSchema.parse(req.body);
+      // --- FIXED: Explicitly type the parsed input ---
+      const input: PjpInput = pjpInputSchema.parse(req.body);
 
-      // 2) map to insert — generate ID in app (no DB default needed)
+      // 2) map to insert — generate ID in app
+      // --- FIXED: All types now match correctly ---
       const insertData = {
-        id: randomUUID(), // <= critical change
+        id: randomUUID(), // App-generated UUID
         userId: input.userId,
         createdById: input.createdById,
-        planDate: toDateOnly(input.planDate), // DATE only
+        planDate: toDateOnly(input.planDate), // input.planDate is Date
         areaToBeVisited: input.areaToBeVisited,
         description: input.description ?? null,
         status: input.status ?? 'pending',
-        // createdAt / updatedAt come from DB defaults if present; if not, omit safely
+        
+        // --- ADDED ---
+        visitDealerName: input.visitDealerName ?? null,
+        verificationStatus: input.verificationStatus ?? null,
+        additionalVisitRemarks: input.additionalVisitRemarks ?? null,
       };
 
       // 3) insert + return
+      // --- FIXED: insertData now correctly matches the insert overload ---
       const [record] = await db.insert(table).values(insertData).returning();
 
       return res.status(201).json({
@@ -83,3 +102,4 @@ export default function setupPermanentJourneyPlansPostRoutes(app: Express) {
   });
   console.log('✅ Permanent Journey Plans POST endpoint ready (app-generated IDs)');
 }
+

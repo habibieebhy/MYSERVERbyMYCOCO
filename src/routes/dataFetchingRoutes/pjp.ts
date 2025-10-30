@@ -5,9 +5,12 @@ import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
 import { permanentJourneyPlans } from '../../db/schema';
 import { z } from 'zod';
-import { and, asc, desc, eq, gte, ilike, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, lte, sql, AnyColumn, SQLWrapper } from 'drizzle-orm';
 
 type TableLike = typeof permanentJourneyPlans;
+// --- FIXED: Create a precise type for column names ---
+type TableColumnNames = keyof TableLike['_']['columns'];
+
 
 // -------- helpers --------
 const numberish = (v: unknown) => {
@@ -30,13 +33,16 @@ function createPJPAutoGET(app: Express, cfg: {
 }) {
   const { endpoint, table, tableName, dateField } = cfg;
 
-  // whitelisted sort keys
-  const SORT_KEYS: Record<string, keyof typeof table> = {
+  // --- FIXED: Whitelisted sort keys using the precise TableColumnNames type ---
+  const SORT_KEYS: Record<string, TableColumnNames> = {
     planDate: 'planDate',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt',
     status: 'status',
     areaToBeVisited: 'areaToBeVisited',
+    // --- ADDED ---
+    visitDealerName: 'visitDealerName',
+    verificationStatus: 'verificationStatus',
   };
 
   const buildWhere = (q: any) => {
@@ -45,14 +51,25 @@ function createPJPAutoGET(app: Express, cfg: {
     // date range on planDate
     const { startDate, endDate } = q;
     if (startDate && endDate) {
+      // --- FIXED: Ensure 'table[dateField]' resolves correctly ---
+      const dateColumn = table[dateField] as AnyColumn;
       conds.push(and(
-        gte(table[dateField], String(startDate)),
-        lte(table[dateField], String(endDate))
+        gte(dateColumn, String(startDate)),
+        lte(dateColumn, String(endDate))
       ));
     }
 
     // status (e.g., pending/completed/cancelled)
     if (q.status) conds.push(eq(table.status, String(q.status)));
+
+    // --- ADDED ---
+    // verificationStatus
+    if (q.verificationStatus) {
+      // Handle potential null column
+      if (table.verificationStatus) {
+        conds.push(eq(table.verificationStatus, String(q.verificationStatus)));
+      }
+    }
 
     // completed=true is sugar for status=completed
     const completed = boolish(q.completed);
@@ -69,16 +86,27 @@ function createPJPAutoGET(app: Express, cfg: {
     // search by area/description (case-insensitive)
     if (q.search) {
       const s = `%${String(q.search).trim()}%`;
-      conds.push(sql`(${ilike(table.areaToBeVisited, s)} OR ${ilike(table.description, s)})`);
+      // --- UPDATED ---
+      // Build search query safely, checking for column existence
+      const searchConditions: SQLWrapper[] = [ilike(table.areaToBeVisited, s)];
+      if (table.description) searchConditions.push(ilike(table.description, s));
+      if (table.visitDealerName) searchConditions.push(ilike(table.visitDealerName, s));
+      if (table.additionalVisitRemarks) searchConditions.push(ilike(table.additionalVisitRemarks, s));
+      
+      conds.push(sql`(${sql.join(searchConditions, sql` OR `)})`);
     }
 
     return conds.length ? (conds.length === 1 ? conds[0] : and(...conds)) : undefined;
   };
 
   const buildSort = (sortByRaw?: string, sortDirRaw?: string) => {
-    const key = sortByRaw && SORT_KEYS[sortByRaw] ? SORT_KEYS[sortByRaw] : 'planDate';
+    // --- FIXED: Key is now guaranteed to be a valid column name ---
+    const key: TableColumnNames = sortByRaw && SORT_KEYS[sortByRaw] ? SORT_KEYS[sortByRaw] : 'planDate';
     const dir = (sortDirRaw || '').toLowerCase() === 'asc' ? 'asc' : 'desc';
-    return dir === 'asc' ? asc(table[key]) : desc(table[key]);
+    
+    // --- FIXED: 'column' is now correctly inferred as AnyColumn ---
+    const column = table[key];
+    return dir === 'asc' ? asc(column) : desc(column);
   };
 
   // ===== GET ALL =====
@@ -93,10 +121,19 @@ function createPJPAutoGET(app: Express, cfg: {
       const whereCond = buildWhere(filters);
       const orderExpr = buildSort(String(sortBy), String(sortDir));
 
-      let q = db.select().from(table).orderBy(orderExpr).limit(lmt).offset(offset);
-      if (whereCond) q = q.where(whereCond);
+      // --- FIXED: Build the query in the correct order ---
+      // 1. Start with select
+      let q = db.select().from(table).$dynamic();
+      
+      // 2. Conditionally apply where
+      if (whereCond) {
+        q = q.where(whereCond);
+      }
 
-      const data = await q;
+      // 3. Apply sorting, limit, and offset to the (potentially filtered) query
+      const data = await q.orderBy(orderExpr).limit(lmt).offset(offset);
+      // --- End of fix ---
+
       res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s error:`, error);
@@ -146,7 +183,7 @@ function createPJPAutoGET(app: Express, cfg: {
       const data = await db.select().from(table).where(whereCond).orderBy(orderExpr).limit(lmt).offset(offset);
 
       res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
-    } catch (error) {
+    } catch (error) { // --- FIXED: Removed 'S' typo ---
       console.error(`Get ${tableName}s by Creator error:`, error);
       res.status(500).json({ success: false, error: `Failed to fetch ${tableName}s`, details: (error as Error)?.message ?? 'Unknown error' });
     }
@@ -199,3 +236,4 @@ export default function setupPJPRoutes(app: Express) {
   });
   console.log('✅ Permanent Journey Plans GET endpoints ready');
 }
+

@@ -26,6 +26,7 @@ import setupSalesOrdersRoutes from './src/routes/dataFetchingRoutes/salesOrder';
 import setupDailyVisitReportsRoutes from './src/routes/dataFetchingRoutes/dvr';
 import setupSalesmanAttendanceRoutes from './src/routes/dataFetchingRoutes/salesmanAttendance';
 import setupTechnicalVisitReportsRoutes from './src/routes/dataFetchingRoutes/tvr';
+import setupTsoMeetingsGetRoutes from './src/routes/dataFetchingRoutes/tsoMeetings';
 
 // --- Import DELETE route setups ---
 import setupDealersDeleteRoutes from './src/routes/deleteRoutes/dealers';
@@ -41,6 +42,7 @@ import setupBrandsDeleteRoutes from './src/routes/deleteRoutes/brands';
 import setupRatingsDeleteRoutes from './src/routes/deleteRoutes/ratings';
 import setupSalesOrdersDeleteRoutes from './src/routes/deleteRoutes/salesOrder';
 import setupDealerReportsAndScoresDeleteRoutes from './src/routes/deleteRoutes/dealerReportsAndScores';
+import setupTsoMeetingsDeleteRoutes from './src/routes/deleteRoutes/tsoMeetings';
 
 // --- Import POST route setups ---
 import setupDailyVisitReportsPostRoutes from './src/routes/formSubmissionRoutes/dvr';
@@ -61,6 +63,8 @@ import setupSalesOrdersPostRoutes from './src/routes/formSubmissionRoutes/salesO
 import setupDealerBrandMappingPostRoutes from './src/routes/formSubmissionRoutes/brandMapping';
 import setupAttendanceCheckInRoutes from './src/routes/formSubmissionRoutes/attendanceIn';
 import setupAttendanceCheckOutRoutes from './src/routes/formSubmissionRoutes/attendanceOut';
+import setupTsoMeetingsPostRoutes from './src/routes/formSubmissionRoutes/tsoMeetings';
+
 
 // --- Import UPDATE (PATCH) route setups ---
 import setupDealersPatchRoutes from './src/routes/updateRoutes/dealers';
@@ -70,6 +74,10 @@ import setupDealerBrandMappingPatchRoutes from './src/routes/updateRoutes/brandM
 import setupBrandsPatchRoutes from './src/routes/updateRoutes/brands';
 import setupRatingsPatchRoutes from './src/routes/updateRoutes/ratings';
 import setupDealerScoresPatchRoutes from './src/routes/updateRoutes/dealerReportandScores';
+import setupDailyVisitReportsPatchRoutes from './src/routes/updateRoutes/dvr';
+import setupTechnicalVisitReportsPatchRoutes from './src/routes/updateRoutes/tvr';
+import setupTsoMeetingsPatchRoutes from './src/routes/updateRoutes/tsoMeetings';
+import setupSalesOrdersPatchRoutes from './src/routes/updateRoutes/salesorder';
 
 // --- Import GEO TRACKING route setups ---
 import setupGeoTrackingRoutes from './src/routes/geoTrackingRoutes/geoTracking';
@@ -138,6 +146,7 @@ setupCollectionReportsRoutes(app);       // /api/collection-reports/*
 setupCompetitionReportsRoutes(app);      // /api/competition-reports/*
 setupDailyVisitReportsRoutes(app);       // /api/daily-visit-reports/*
 setupTechnicalVisitReportsRoutes(app);   // /api/technical-visit-reports/*
+setupTsoMeetingsGetRoutes(app);
 
 // Additional Data Endpoints (GET)
 setupDdpRoutes(app);                     // /api/ddp/*
@@ -167,6 +176,7 @@ setupDealerBrandMappingPostRoutes(app);  // POST /api/dealer-brand-mapping/*
 setupDailyVisitReportsPostRoutes(app);   // POST /api/daily-visit-reports/*
 setupAttendanceCheckInRoutes(app);       // POST /api/attendance/check-in/*
 setupAttendanceCheckOutRoutes(app);      // POST /api/attendance/check-out/*
+setupTsoMeetingsPostRoutes(app);         // TSO meeting r ENDPOINT r initiations kaam kore
 
 // DELETE Endpoints
 setupDealersDeleteRoutes(app);           // DELETE /api/dealers/*
@@ -182,6 +192,7 @@ setupBrandsDeleteRoutes(app);            // DELETE /api/brands/*
 setupRatingsDeleteRoutes(app);           // DELETE /api/ratings/*
 setupSalesOrdersDeleteRoutes(app);       // DELETE /api/sales-orders/*
 setupDealerReportsAndScoresDeleteRoutes(app); // DELETE /api/dealer-reports-scores/*
+setupTsoMeetingsDeleteRoutes(app);
 
 // UPDATE (PATCH) endpoints
 setupDealersPatchRoutes(app);
@@ -191,6 +202,10 @@ setupDailyTaskPatchRoutes(app);
 setupDealerBrandMappingPatchRoutes(app);
 setupBrandsPatchRoutes(app);
 setupPjpPatchRoutes(app);
+setupDailyVisitReportsPatchRoutes(app);
+setupTechnicalVisitReportsPatchRoutes(app);
+setupTsoMeetingsPatchRoutes(app);
+setupSalesOrdersPatchRoutes(app);
 
 // ---------- GEO TRACKING SETUP--------
 setupGeoTrackingRoutes(app);

@@ -1,10 +1,10 @@
-// server/src/routes/users.ts 
-// Users GET endpoints using createAutoCRUD pattern
+// server/src/routes/users.ts
+// Users GET endpoints using a DRY (Don't Repeat Yourself) approach.
 
 import { Request, Response, Express } from 'express';
 import { db } from '../db/db';
-import { users, companies, insertUserSchema } from '../db/schema';
-import { eq, and, desc, like } from 'drizzle-orm';
+import { users, insertUserSchema } from '../db/schema';
+import { eq, and, desc, like, or, SQL } from 'drizzle-orm';
 import { z, ZodType } from 'zod';
 
 // Helper function to safely convert BigInt to JSON
@@ -14,107 +14,99 @@ function toJsonSafe(obj: any): any {
   ));
 }
 
+/**
+ * Defines the set of user fields that are safe to return to the public.
+ * This object is reused in all 'select' queries to ensure consistency
+ * and prevent accidental exposure of sensitive data like 'hashedPassword'.
+ */
+const userPublicSelect = {
+  id: users.id,
+  email: users.email,
+  firstName: users.firstName,
+  lastName: users.lastName,
+  role: users.role,
+  phoneNumber: users.phoneNumber,
+  region: users.region,
+  area: users.area,
+  salesmanLoginId: users.salesmanLoginId,
+  status: users.status,
+  companyId: users.companyId,
+  reportsToId: users.reportsToId,
+  createdAt: users.createdAt,
+  updatedAt: users.updatedAt,
+  // --- ADDED MISSING FIELDS ---
+  workosUserId: users.workosUserId,
+  inviteToken: users.inviteToken,
+  noOfPJP: users.noOfPJP,
+};
+
 function createAutoCRUD(app: Express, config: {
   endpoint: string,
   table: any,
   schema: z.ZodSchema,
   tableName: string,
-  autoFields?: { [key: string]: () => any },
-  dateField?: string
 }) {
-  const { endpoint, table, schema, tableName, autoFields = {}, dateField } = config;
+  const { endpoint, table, schema, tableName } = config;
 
-  // GET ALL - with optional filtering
+  /**
+   * GET /api/users
+   * Fetches all users with extensive filtering and search capabilities.
+   * Query Params:
+   * - limit (number, default 50)
+   * - role (string)
+   * - region (string)
+   * - area (string)
+   * - status (string)
+   * - companyId (number)
+   * - reportsToId (number)
+   * - search (string) - Searches email, firstName, and lastName
+   */
   app.get(`/api/${endpoint}`, async (req: Request, res: Response) => {
     try {
-      const { limit = '50', role, region, area, status, companyId, search, ...filters } = req.query;
+      const { limit = '50', role, region, area, status, companyId, reportsToId, search } = req.query;
 
-      let whereCondition: any = undefined;
+      let conditions: SQL[] = [];
 
       // Search by name or email (partial match)
       if (search) {
-        whereCondition = like(table.email, `%${search}%`);
+        const searchPattern = `%${String(search).toLowerCase()}%`;
+        conditions.push(
+          or(
+            like(table.email, searchPattern),
+            like(table.firstName, searchPattern),
+            like(table.lastName, searchPattern)
+          )!
+        );
       }
 
-      // Filter by role
-      if (role) {
-        whereCondition = whereCondition
-          ? and(whereCondition, eq(table.role, role as string))
-          : eq(table.role, role as string);
-      }
-
-      // Filter by region
-      if (region) {
-        whereCondition = whereCondition
-          ? and(whereCondition, eq(table.region, region as string))
-          : eq(table.region, region as string);
-      }
-
-      // Filter by area
-      if (area) {
-        whereCondition = whereCondition
-          ? and(whereCondition, eq(table.area, area as string))
-          : eq(table.area, area as string);
-      }
-
-      // Filter by status
-      if (status) {
-        whereCondition = whereCondition
-          ? and(whereCondition, eq(table.status, status as string))
-          : eq(table.status, status as string);
-      }
-
-      // Filter by companyId
+      // Add filters for specific fields
+      if (role) conditions.push(eq(table.role, role as string));
+      if (region) conditions.push(eq(table.region, region as string));
+      if (area) conditions.push(eq(table.area, area as string));
+      if (status) conditions.push(eq(table.status, status as string));
+      
+      // Handle numeric filters with parsing
       if (companyId) {
-        whereCondition = whereCondition
-          ? and(whereCondition, eq(table.companyId, parseInt(companyId as string)))
-          : eq(table.companyId, parseInt(companyId as string));
+        const id = parseInt(companyId as string, 10);
+        if (!isNaN(id)) conditions.push(eq(table.companyId, id));
+      }
+      if (reportsToId) {
+        const id = parseInt(reportsToId as string, 10);
+        if (!isNaN(id)) conditions.push(eq(table.reportsToId, id));
       }
 
-      // Additional filters
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value && table[key]) {
-          if (key === 'companyId' || key === 'reportsToId') {
-            whereCondition = whereCondition
-              ? and(whereCondition, eq(table[key], parseInt(value as string)))
-              : eq(table[key], parseInt(value as string));
-          } else {
-            whereCondition = whereCondition
-              ? and(whereCondition, eq(table[key], value))
-              : eq(table[key], value);
-          }
-        }
-      });
+      // 1. Create a base query that selects our consistent public fields.
+      const baseQuery = db.select(userPublicSelect).from(table);
 
-      // 1. Create a base query that selects your fields.
-      const baseQuery = db.select({
-        id: table.id,
-        email: table.email,
-        firstName: table.firstName,
-        lastName: table.lastName,
-        role: table.role,
-        phoneNumber: table.phoneNumber,
-        region: table.region,
-        area: table.area,
-        salesmanLoginId: table.salesmanLoginId,
-        status: table.status,
-        companyId: table.companyId,
-        reportsToId: table.reportsToId,
-        createdAt: table.createdAt,
-        updatedAt: table.updatedAt,
-      }).from(table);
-
-      // 2. Use the .$dynamic() helper to create a version of the query
-      //    that TypeScript will allow you to modify conditionally.
+      // 2. Use .$dynamic() to allow conditional 'where'
       let query = baseQuery.$dynamic();
 
-      // 3. Apply the where clause only if it exists.
-      //    This reassignment now works because of .$dynamic().
-      if (whereCondition) {
-        query = query.where(whereCondition);
+      // 3. Apply the 'where' clause only if conditions exist.
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions));
       }
 
-      // 4. Chain the final methods and execute the query.
+      // 4. Chain final methods and execute.
       const records = await query
         .orderBy(desc(table.createdAt))
         .limit(parseInt(limit as string));
@@ -130,44 +122,31 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
-  // GET BY Company ID
+  /**
+   * GET /api/users/company/:companyId
+   * Fetches users for a specific company, with optional sub-filtering.
+   */
   app.get(`/api/${endpoint}/company/:companyId`, async (req: Request, res: Response) => {
     try {
-      const { companyId } = req.params;
+      const companyId = parseInt(req.params.companyId, 10);
+      if (isNaN(companyId)) {
+        return res.status(400).json({ success: false, error: 'Invalid company id' });
+      }
+      
       const { limit = '50', role, region, area, status } = req.query;
 
-      let whereCondition: any = eq(table.companyId, parseInt(companyId));
+      // Start with the mandatory companyId condition
+      let conditions: SQL[] = [eq(table.companyId, companyId)];
 
-      if (role) {
-        whereCondition = and(whereCondition, eq(table.role, role as string));
-      }
-      if (region) {
-        whereCondition = and(whereCondition, eq(table.region, region as string));
-      }
-      if (area) {
-        whereCondition = and(whereCondition, eq(table.area, area as string));
-      }
-      if (status) {
-        whereCondition = and(whereCondition, eq(table.status, status as string));
-      }
+      // Add optional filters
+      if (role) conditions.push(eq(table.role, role as string));
+      if (region) conditions.push(eq(table.region, region as string));
+      if (area) conditions.push(eq(table.area, area as string));
+      if (status) conditions.push(eq(table.status, status as string));
 
-      const records = await db.select({
-        id: table.id,
-        email: table.email,
-        firstName: table.firstName,
-        lastName: table.lastName,
-        role: table.role,
-        phoneNumber: table.phoneNumber,
-        region: table.region,
-        area: table.area,
-        salesmanLoginId: table.salesmanLoginId,
-        status: table.status,
-        companyId: table.companyId,
-        reportsToId: table.reportsToId,
-        createdAt: table.createdAt,
-        updatedAt: table.updatedAt,
-      }).from(table)
-        .where(whereCondition)
+      const records = await db.select(userPublicSelect)
+        .from(table)
+        .where(and(...conditions))
         .orderBy(desc(table.createdAt))
         .limit(parseInt(limit as string));
 
@@ -182,26 +161,22 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
-  // GET BY ID (excludes sensitive data)
+  /**
+   * GET /api/users/:id
+   * Fetches a single user by their primary key.
+   */
   app.get(`/api/${endpoint}/:id`, async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
-      const [record] = await db.select({
-        id: table.id,
-        email: table.email,
-        firstName: table.firstName,
-        lastName: table.lastName,
-        role: table.role,
-        phoneNumber: table.phoneNumber,
-        region: table.region,
-        area: table.area,
-        salesmanLoginId: table.salesmanLoginId,
-        status: table.status,
-        companyId: table.companyId,
-        reportsToId: table.reportsToId,
-        createdAt: table.createdAt,
-        updatedAt: table.updatedAt,
-      }).from(table).where(eq(table.id, parseInt(id))).limit(1);
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+          return res.status(400).json({ success: false, error: 'Invalid user id' });
+      }
+
+      // Use the consistent 'userPublicSelect'
+      const [record] = await db.select(userPublicSelect)
+        .from(table)
+        .where(eq(table.id, id))
+        .limit(1);
 
       if (!record) {
         return res.status(404).json({
@@ -221,121 +196,17 @@ function createAutoCRUD(app: Express, config: {
     }
   });
 
-  // GET BY Role
-  app.get(`/api/${endpoint}/role/:role`, async (req: Request, res: Response) => {
-    try {
-      const { role } = req.params;
-      const { limit = '50', companyId, region, area, status } = req.query;
-
-      let whereCondition: any = eq(table.role, role);
-
-      if (companyId) {
-        whereCondition = and(whereCondition, eq(table.companyId, parseInt(companyId as string)));
-      }
-      if (region) {
-        whereCondition = and(whereCondition, eq(table.region, region as string));
-      }
-      if (area) {
-        whereCondition = and(whereCondition, eq(table.area, area as string));
-      }
-      if (status) {
-        whereCondition = and(whereCondition, eq(table.status, status as string));
-      }
-
-      const records = await db.select({
-        id: table.id,
-        email: table.email,
-        firstName: table.firstName,
-        lastName: table.lastName,
-        role: table.role,
-        phoneNumber: table.phoneNumber,
-        region: table.region,
-        area: table.area,
-        salesmanLoginId: table.salesmanLoginId,
-        status: table.status,
-        companyId: table.companyId,
-        reportsToId: table.reportsToId,
-        createdAt: table.createdAt,
-        updatedAt: table.updatedAt,
-      }).from(table)
-        .where(whereCondition)
-        .orderBy(desc(table.createdAt))
-        .limit(parseInt(limit as string));
-
-      res.json({ success: true, data: toJsonSafe(records) });
-    } catch (error) {
-      console.error(`Get ${tableName}s by Role error:`, error);
-      res.status(500).json({
-        success: false,
-        error: `Failed to fetch ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  // GET BY Region
-  app.get(`/api/${endpoint}/region/:region`, async (req: Request, res: Response) => {
-    try {
-      const { region } = req.params;
-      const { limit = '50', companyId, role, area, status } = req.query;
-
-      let whereCondition: any = eq(table.region, region);
-
-      if (companyId) {
-        whereCondition = and(whereCondition, eq(table.companyId, parseInt(companyId as string)));
-      }
-      if (role) {
-        whereCondition = and(whereCondition, eq(table.role, role as string));
-      }
-      if (area) {
-        whereCondition = and(whereCondition, eq(table.area, area as string));
-      }
-      if (status) {
-        whereCondition = and(whereCondition, eq(table.status, status as string));
-      }
-
-      const records = await db.select({
-        id: table.id,
-        email: table.email,
-        firstName: table.firstName,
-        lastName: table.lastName,
-        role: table.role,
-        phoneNumber: table.phoneNumber,
-        region: table.region,
-        area: table.area,
-        salesmanLoginId: table.salesmanLoginId,
-        status: table.status,
-        companyId: table.companyId,
-        reportsToId: table.reportsToId,
-        createdAt: table.createdAt,
-        updatedAt: table.updatedAt,
-      }).from(table)
-        .where(whereCondition)
-        .orderBy(desc(table.createdAt))
-        .limit(parseInt(limit as string));
-
-      res.json({ success: true, data: toJsonSafe(records) });
-    } catch (error) {
-      console.error(`Get ${tableName}s by Region error:`, error);
-      res.status(500).json({
-        success: false,
-        error: `Failed to fetch ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
+  // Removed redundant /role/:role and /region/:region routes.
+  // The main /api/users endpoint handles this filtering.
 }
 
 // Function call in the same file
 export default function setupUsersRoutes(app: Express) {
-  // Users - no date field, user management
   createAutoCRUD(app, {
     endpoint: 'users',
     table: users,
     schema: insertUserSchema as ZodType<any>,
     tableName: 'User',
-    // No auto fields or date fields needed
   });
 
   console.log('✅ Users GET endpoints setup complete');
