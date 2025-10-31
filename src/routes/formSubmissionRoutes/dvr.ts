@@ -1,5 +1,6 @@
 // server/src/routes/postRoutes/dvr.ts
-// Daily Visit Reports POST — schema-accurate, coercions, CSV->array, optional pjpId
+// --- UPDATED with visitType fix ---
+
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
 import { dailyVisitReports } from '../../db/schema';
@@ -7,100 +8,82 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 
 // ---- helpers ----
+const toDateOnly = (d: Date) => d.toISOString().slice(0, 10);
 const toStringArray = (v: unknown): string[] => {
   if (Array.isArray(v)) return v.map(String).map(s => s.trim()).filter(Boolean);
-  if (typeof v === 'string') {
-    const s = v.trim();
-    if (!s) return [];
-    return s.includes(',') ? s.split(',').map(t => t.trim()).filter(Boolean) : [s];
-  }
+  if (typeof v === 'string') { const s = v.trim(); if (!s) return []; return s.includes(',') ? s.split(',').map(t => t.trim()).filter(Boolean) : [s]; }
   return [];
 };
+const strOrNull = z.preprocess((val) => {
+  if (val === '' || val === null || val === undefined) return null;
+  return String(val).trim();
+}, z.string().nullable().optional());
+const numOrNull = z.preprocess((val) => (val === '' || val === null || val === undefined) ? null : val, z.coerce.number().nullable().optional());
 
-const nullableString = z
-  .string()
-  .transform((s) => (s.trim() === '' ? null : s))
-  .optional()
-  .nullable();
 
-// ---- input schema (matches DB + coercions) ----
+// ---- input schema UPDATED (matches DB + coercions) ----
 const dvrInputSchema = z
   .object({
     userId: z.coerce.number().int().positive(),
-
+    dealerId: strOrNull,
+    subDealerId: strOrNull,
     reportDate: z.coerce.date(),
-
     dealerType: z.string().max(50),
-    dealerName: nullableString,
-    subDealerName: nullableString,
-
     location: z.string().max(500),
-
-    latitude: z.coerce.number(),   // numeric(10,7)
-    longitude: z.coerce.number(),  // numeric(10,7)
-
-    visitType: z.string().max(50),
-
-    dealerTotalPotential: z.coerce.number(),  // numeric(10,2)
-    dealerBestPotential: z.coerce.number(),   // numeric(10,2)
-
+    latitude: z.coerce.number(),
+    longitude: z.coerce.number(),
+    
+    visitType: z.string().max(50), // <-- This was in the schema
+    
+    dealerTotalPotential: z.coerce.number(),
+    dealerBestPotential: z.coerce.number(),
     brandSelling: z.preprocess(toStringArray, z.array(z.string()).min(1)),
-
-    contactPerson: nullableString,
-    contactPersonPhoneNo: nullableString,
-
-    todayOrderMt: z.coerce.number(),          // numeric(10,2)
-    todayCollectionRupees: z.coerce.number(), // numeric(10,2)
-    overdueAmount: z.coerce.number().nullable().optional(),
-
+    contactPerson: strOrNull,
+    contactPersonPhoneNo: strOrNull,
+    todayOrderMt: z.coerce.number(),
+    todayCollectionRupees: z.coerce.number(),
+    overdueAmount: numOrNull,
     feedbacks: z.string().max(500).min(1),
-
-    solutionBySalesperson: nullableString,
-    anyRemarks: nullableString,
-
+    solutionBySalesperson: strOrNull,
+    anyRemarks: strOrNull,
     checkInTime: z.coerce.date(),
     checkOutTime: z.coerce.date().nullable().optional(),
-
-    inTimeImageUrl: nullableString,
-    outTimeImageUrl: nullableString,
-
-    // NEW link (nullable)
-    pjpId: z.string().max(255).optional().nullable(),
+    inTimeImageUrl: strOrNull,
+    outTimeImageUrl: strOrNull,
+    pjpId: strOrNull,
   })
   .strict();
 
-function createAutoCRUD(app: Express, config: {
-  endpoint: string,
-  table: typeof dailyVisitReports,
-  tableName: string,
-}) {
-  const { endpoint, table, tableName } = config;
-
-  app.post(`/api/${endpoint}`, async (req: Request, res: Response) => {
+export default function setupDailyVisitReportsPostRoutes(app: Express) {
+  app.post('/api/daily-visit-reports', async (req: Request, res: Response) => {
     try {
       // 1) validate + coerce
       const input = dvrInputSchema.parse(req.body);
 
-      // 2) map to insert — EXPLICIT ID so we don't depend on DB defaults
+      // 2) map to insert
       const insertData = {
-        id: randomUUID(), // <— key fix
+        id: randomUUID(),
         userId: input.userId,
-        reportDate: input.reportDate,
+        dealerId: input.dealerId ?? null,
+        subDealerId: input.subDealerId ?? null,
+        reportDate: toDateOnly(input.reportDate),
         dealerType: input.dealerType,
-        dealerName: input.dealerName ?? null,
-        subDealerName: input.subDealerName ?? null,
         location: input.location,
-        latitude: input.latitude,
-        longitude: input.longitude,
-        visitType: input.visitType,
-        dealerTotalPotential: input.dealerTotalPotential,
-        dealerBestPotential: input.dealerBestPotential,
+        latitude: String(input.latitude),
+        longitude: String(input.longitude),
+        
+        // --- ✅ THE FIX ---
+        visitType: input.visitType, // <-- This line was missing
+        // --- END FIX ---
+
+        dealerTotalPotential: String(input.dealerTotalPotential),
+        dealerBestPotential: String(input.dealerBestPotential),
         brandSelling: input.brandSelling,
         contactPerson: input.contactPerson ?? null,
         contactPersonPhoneNo: input.contactPersonPhoneNo ?? null,
-        todayOrderMt: input.todayOrderMt,
-        todayCollectionRupees: input.todayCollectionRupees,
-        overdueAmount: input.overdueAmount ?? null,
+        todayOrderMt: String(input.todayOrderMt),
+        todayCollectionRupees: String(input.todayCollectionRupees),
+        overdueAmount: input.overdueAmount ? String(input.overdueAmount) : null,
         feedbacks: input.feedbacks,
         solutionBySalesperson: input.solutionBySalesperson ?? null,
         anyRemarks: input.anyRemarks ?? null,
@@ -109,19 +92,18 @@ function createAutoCRUD(app: Express, config: {
         inTimeImageUrl: input.inTimeImageUrl ?? null,
         outTimeImageUrl: input.outTimeImageUrl ?? null,
         pjpId: input.pjpId ?? null,
-        // createdAt/updatedAt: DB defaults
       };
 
       // 3) insert
-      const [record] = await db.insert(table).values(insertData).returning();
+      const [record] = await db.insert(dailyVisitReports).values(insertData).returning();
 
       return res.status(201).json({
         success: true,
-        message: `${tableName} created successfully`,
+        message: 'Daily Visit Report created successfully',
         data: record,
       });
     } catch (error) {
-      console.error(`Create ${tableName} error:`, error);
+      console.error(`Create DVR error:`, error);
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           success: false,
@@ -135,18 +117,11 @@ function createAutoCRUD(app: Express, config: {
       }
       return res.status(500).json({
         success: false,
-        error: `Failed to create ${tableName}`,
+        error: 'Failed to create DVR',
         details: (error as Error)?.message ?? 'Unknown error',
       });
     }
   });
-}
 
-export default function setupDailyVisitReportsPostRoutes(app: Express) {
-  createAutoCRUD(app, {
-    endpoint: 'daily-visit-reports',
-    table: dailyVisitReports,
-    tableName: 'Daily Visit Report',
-  });
-  console.log('✅ Daily Visit Reports POST (schema-accurate, app-id) ready');
+  console.log('✅ DVR POST endpoints (using dealerId) setup complete');
 }

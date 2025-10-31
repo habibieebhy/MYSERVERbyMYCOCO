@@ -77,18 +77,24 @@ export const tsoMeetings = pgTable("tso_meetings", {
   index("idx_tso_meetings_created_by_user_id").on(t.createdByUserId),
 ]);
 
-/* ========================= permanent_journey_plans ========================= */
+/* ========================= permanent_journey_plans (FIXED) ========================= */
 export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: integer("user_id").notNull().references(() => users.id),
   createdById: integer("created_by_id").notNull().references(() => users.id),
+
+  // --- ✅ THE FIX ---
+  // Replaced visitDealerName with a direct, reliable link to the dealers table.
+  dealerId: varchar("dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null" }),
+  // --- END FIX ---
+
   planDate: date("plan_date").notNull(),
   areaToBeVisited: varchar("area_to_be_visited", { length: 500 }).notNull(),
   description: varchar("description", { length: 500 }),
   status: varchar("status", { length: 50 }).notNull(),
 
-  // --- ADDED FOR PRISMA PARITY ---
-  visitDealerName: varchar("visit_dealer_name", { length: 255 }),
+  // --- visitDealerName was REMOVED ---
+  // visitDealerName: varchar("visit_dealer_name", { length: 255 }), // <-- REMOVED
   verificationStatus: varchar("verification_status", { length: 50 }),
   additionalVisitRemarks: varchar("additional_visit_remarks", { length: 500 }),
 
@@ -97,20 +103,31 @@ export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
 }, (t) => [
   index("idx_permanent_journey_plans_user_id").on(t.userId),
   index("idx_permanent_journey_plans_created_by_id").on(t.createdById),
+  index("idx_pjp_dealer_id").on(t.dealerId), // <-- NEW INDEX ADDED
 ]);
 
-/* ========================= daily_visit_reports ========================= */
+/* ========================= daily_visit_reports (FIXED w/ Sub Dealers) ========================= */
 export const dailyVisitReports = pgTable("daily_visit_reports", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+
+  // --- ✅ THE FINAL FIX ---
+  // The main dealer this visit is associated with.
+  dealerId: varchar("dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null" }),
+  // The specific sub-dealer that was visited (if any).
+  subDealerId: varchar("sub_dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null" }),
+  // --- END FIX ---
+  
   reportDate: date("report_date").notNull(),
   dealerType: varchar("dealer_type", { length: 50 }).notNull(), // "Dealer" | "Sub Dealer"
-  dealerName: varchar("dealer_name", { length: 255 }),
-  subDealerName: varchar("sub_dealer_name", { length: 255 }),
+  // dealerName: varchar("dealer_name", { length: 255 }), // <-- REMOVED
+  // subDealerName: varchar("sub_dealer_name", { length: 255 }), // <-- REMOVED
+
   location: varchar("location", { length: 500 }).notNull(),
   latitude: numeric("latitude", { precision: 10, scale: 7 }).notNull(),
+  // ... (all your other fields remain the same) ...
   longitude: numeric("longitude", { precision: 10, scale: 7 }).notNull(),
-  visitType: varchar("visit_type", { length: 50 }).notNull(), // "Best" | "Non Best"
+  visitType: varchar("visit_type", { length: 50 }).notNull(), 
   dealerTotalPotential: numeric("dealer_total_potential", { precision: 10, scale: 2 }).notNull(),
   dealerBestPotential: numeric("dealer_best_potential", { precision: 10, scale: 2 }).notNull(),
   brandSelling: text("brand_selling").array().notNull(),
@@ -126,13 +143,15 @@ export const dailyVisitReports = pgTable("daily_visit_reports", {
   checkOutTime: timestamp("check_out_time", { withTimezone: true, precision: 6 }),
   inTimeImageUrl: varchar("in_time_image_url", { length: 500 }),
   outTimeImageUrl: varchar("out_time_image_url", { length: 500 }),
-  // Link to PJP (new)
   pjpId: varchar("pjp_id", { length: 255 }).references(() => permanentJourneyPlans.id, { onDelete: "set null" }),
+  
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
   index("idx_daily_visit_reports_user_id").on(t.userId),
   index("idx_daily_visit_reports_pjp_id").on(t.pjpId),
+  index("idx_dvr_dealer_id").on(t.dealerId), // <-- NEW INDEX
+  index("idx_dvr_sub_dealer_id").on(t.subDealerId), // <-- NEW INDEX
 ]);
 
 /* ========================= technical_visit_reports ========================= */
@@ -526,7 +545,7 @@ export const giftAllocationLogs = pgTable("gift_allocation_logs", {
   index("idx_gift_logs_destination_user_id").on(t.destinationUserId),
 ]);
 
-/* ========================= sales_orders (replaced to match Prisma) ========================= */
+/* ========================= sales_orders (FIXED) ========================= */
 export const salesOrders = pgTable("sales_orders", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
 
@@ -573,6 +592,11 @@ export const salesOrders = pgTable("sales_orders", {
   // Product classification
   itemType: varchar("item_type", { length: 20 }), // "PPC" | "OPC"
   itemGrade: varchar("item_grade", { length: 10 }), // "33" | "43" | "53"
+  
+  // --- ✅ THE FIX ---
+  // Added status field for the Admin approval workflow
+  status: varchar("status", { length: 50 }).notNull().default("Pending"), // e.g., "Pending", "Approved", "Rejected"
+  // --- END FIX ---
 
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
@@ -580,8 +604,9 @@ export const salesOrders = pgTable("sales_orders", {
   index("idx_sales_orders_dvr_id").on(t.dvrId),
   index("idx_sales_orders_pjp_id").on(t.pjpId),
   index("idx_sales_orders_order_date").on(t.orderDate),
+  index("idx_sales_orders_dealer_id").on(t.dealerId), // Added index for dealer filtering
+  index("idx_sales_orders_status").on(t.status), // <-- NEW INDEX ADDED
 ]);
-
 /* ========================= master_connected_table ========================= */
 export const masterConnectedTable = pgTable("master_connected_table", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),

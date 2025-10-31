@@ -1,5 +1,5 @@
 // server/src/routes/dataFetchingRoutes/salesOrder.ts
-// Sales Orders GET endpoints (FIXED)
+// --- UPDATED to include 'status' filter/sort ---
 
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
@@ -13,17 +13,20 @@ type TableLike = typeof salesOrders;
 const numberish = (v: unknown): string | undefined => {
   if (v === null || v === undefined || v === '') return undefined;
   const n = Number(v);
-  // Convert to string for Drizzle numeric comparison
   return Number.isFinite(n) ? String(n) : undefined; 
 };
+const integerish = (v: unknown): number | undefined => {
+  if (v === null || v === undefined || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.floor(n) : undefined;
+}
 
-// pick a column safely from whitelist
 function pickDateColumn(table: TableLike, key?: string) {
   switch ((key || '').toLowerCase()) {
     case 'deliverydate': return table.deliveryDate;
     case 'receivedpaymentdate': return table.receivedPaymentDate;
     case 'createdat': return table.createdAt;
-    default: return table.orderDate; // default
+    default: return table.orderDate;
   }
 }
 
@@ -35,7 +38,7 @@ function createAutoCRUD(app: Express, config: {
 }) {
   const { endpoint, table, tableName } = config;
 
-  // --- ✅ TS FIX: Type-safe buildSort ---
+  // --- buildSort UPDATED ---
   const buildSort = (sortByRaw?: string, sortDirRaw?: string) => {
     const dir = (sortDirRaw || '').toLowerCase() === 'asc' ? 'asc' : 'desc';
     
@@ -54,58 +57,63 @@ function createAutoCRUD(app: Express, config: {
         return dir === 'asc' ? asc(table.itemPrice) : desc(table.itemPrice);
       case 'orderQty':
         return dir === 'asc' ? asc(table.orderQty) : desc(table.orderQty);
+      // --- ✅ FIX ---
+      case 'status':
+        return dir === 'asc' ? asc(table.status) : desc(table.status);
+      // --- END FIX ---
       case 'createdAt':
         return dir === 'asc' ? asc(table.createdAt) : desc(table.createdAt);
       default:
-        return desc(table.createdAt); // Default
+        return desc(table.createdAt);
     }
   };
-  // --- END FIX ---
 
+  // --- buildWhere UPDATED ---
   const buildWhere = (q: any) => {
     const conds: (SQL | undefined)[] = [];
 
-    // ---- IDs / relations ----
-    if (q.userId) {
-      const v = numberish(q.userId);
-      if (v !== undefined) conds.push(eq(table.userId, Number(v))); // userId is integer
-    }
+    // IDs
+    const uid = integerish(q.userId);
+    if (uid !== undefined) conds.push(eq(table.userId, uid));
     if (q.dealerId) conds.push(eq(table.dealerId, String(q.dealerId)));
     if (q.dvrId) conds.push(eq(table.dvrId, String(q.dvrId)));
     if (q.pjpId) conds.push(eq(table.pjpId, String(q.pjpId)));
 
-    // ---- enums / text exact ----
+    // Enums
     if (q.orderUnit) conds.push(eq(table.orderUnit, String(q.orderUnit)));
     if (q.itemType) conds.push(eq(table.itemType, String(q.itemType)));
     if (q.itemGrade) conds.push(eq(table.itemGrade, String(q.itemGrade)));
     if (q.paymentMode) conds.push(eq(table.paymentMode, String(q.paymentMode)));
+    
+    // --- ✅ FIX ---
+    if (q.status) {
+      conds.push(eq(table.status, String(q.status)));
+    }
+    // --- END FIX ---
 
-    // ---- date range ----
+    // Date range
     const col = pickDateColumn(table, q.dateField);
     const dateFrom = q.dateFrom ? String(q.dateFrom) : undefined;
     const dateTo = q.dateTo ? String(q.dateTo) : undefined;
-    
     if (dateFrom) conds.push(gte(col, new Date(dateFrom)));
     if (dateTo) conds.push(lte(col, new Date(dateTo)));
 
-    // ---- numeric ranges ----
+    // Numeric ranges
     const minQty = numberish(q.minQty), maxQty = numberish(q.maxQty);
     if (minQty !== undefined) conds.push(gte(table.orderQty, minQty));
     if (maxQty !== undefined) conds.push(lte(table.orderQty, maxQty));
-
+    // ... (other numeric ranges are correct) ...
     const minPay = numberish(q.minPayment), maxPay = numberish(q.maxPayment);
     if (minPay !== undefined) conds.push(gte(table.paymentAmount, minPay));
     if (maxPay !== undefined) conds.push(lte(table.paymentAmount, maxPay));
-
     const minRecv = numberish(q.minReceived), maxRecv = numberish(q.maxReceived);
     if (minRecv !== undefined) conds.push(gte(table.receivedPayment, minRecv));
     if (maxRecv !== undefined) conds.push(lte(table.receivedPayment, maxRecv));
-
     const minPending = numberish(q.minPending), maxPending = numberish(q.maxPending);
     if (minPending !== undefined) conds.push(gte(table.pendingPayment, minPending));
     if (maxPending !== undefined) conds.push(lte(table.pendingPayment, maxPending));
 
-    // ---- simple search: party name + addresses ----
+    // Search
     if (q.search) {
       const s = `%${String(q.search).trim()}%`;
       conds.push(
@@ -124,7 +132,6 @@ function createAutoCRUD(app: Express, config: {
   app.get(`/api/${endpoint}`, async (req: Request, res: Response) => {
     try {
       const { limit = '50', page = '1', sortBy, sortDir, ...filters } = req.query;
-
       const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
       const pg = Math.max(1, parseInt(String(page), 10) || 1);
       const offset = (pg - 1) * lmt;
@@ -132,9 +139,8 @@ function createAutoCRUD(app: Express, config: {
       const whereCond = buildWhere(filters);
       const orderExpr = buildSort(String(sortBy), String(sortDir));
 
-      let q = db.select().from(table);
+      let q = db.select().from(table).$dynamic();
       if (whereCond) {
-        // @ts-ignore
         q = q.where(whereCond);
       }
       const data = await q.orderBy(orderExpr).limit(lmt).offset(offset);
@@ -142,11 +148,7 @@ function createAutoCRUD(app: Express, config: {
       res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s error:`, error);
-      res.status(500).json({
-        success: false,
-        error: `Failed to fetch ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
+      res.status(500).json({ success: false, error: `Failed to fetch ${tableName}s` });
     }
   });
 
@@ -155,35 +157,30 @@ function createAutoCRUD(app: Express, config: {
     try {
       const { userId } = req.params;
       const { limit = '50', page = '1', sortBy, sortDir, ...rest } = req.query;
-
       const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
       const pg = Math.max(1, parseInt(String(page), 10) || 1);
       const offset = (pg - 1) * lmt;
       
-      const uid = numberish(userId);
+      const uid = integerish(userId);
       if (uid === undefined) {
          return res.status(400).json({ success: false, error: 'Invalid User ID' });
       }
 
-      const base = eq(table.userId, Number(uid));
+      const base = eq(table.userId, uid);
       const extra = buildWhere(rest);
       const whereCond = extra ? and(base, extra) : base;
-
       const orderExpr = buildSort(String(sortBy), String(sortDir));
       
-      let q = db.select().from(table);
-      // @ts-ignore
-      q = q.where(whereCond);
+      let q = db.select().from(table).$dynamic();
+      if (whereCond) {
+        q = q.where(whereCond);
+      }
       const data = await q.orderBy(orderExpr).limit(lmt).offset(offset);
 
       res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s by User error:`, error);
-      res.status(500).json({
-        success: false,
-        error: `Failed to fetch ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
+      res.status(500).json({ success: false, error: `Failed to fetch ${tableName}s` });
     }
   });
 
@@ -192,7 +189,6 @@ function createAutoCRUD(app: Express, config: {
     try {
       const { dealerId } = req.params;
       const { limit = '50', page = '1', sortBy, sortDir, ...rest } = req.query;
-
       const lmt = Math.max(1, Math.min(500, parseInt(String(limit), 10) || 50));
       const pg = Math.max(1, parseInt(String(page), 10) || 1);
       const offset = (pg - 1) * lmt;
@@ -200,22 +196,18 @@ function createAutoCRUD(app: Express, config: {
       const base = eq(table.dealerId, dealerId);
       const extra = buildWhere(rest);
       const whereCond = extra ? and(base, extra) : base;
-
       const orderExpr = buildSort(String(sortBy), String(sortDir));
 
-      let q = db.select().from(table);
-      // @ts-ignore
-      q = q.where(whereCond);
+      let q = db.select().from(table).$dynamic();
+      if (whereCond) {
+        q = q.where(whereCond);
+      }
       const data = await q.orderBy(orderExpr).limit(lmt).offset(offset);
 
       res.json({ success: true, page: pg, limit: lmt, count: data.length, data });
     } catch (error) {
       console.error(`Get ${tableName}s by Dealer error:`, error);
-      res.status(500).json({
-        success: false,
-        error: `Failed to fetch ${tableName}s`,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
+      res.status(500).json({ success: false, error: `Failed to fetch ${tableName}s` });
     }
   });
 
@@ -228,11 +220,7 @@ function createAutoCRUD(app: Express, config: {
       res.json({ success: true, data: record });
     } catch (error) {
       console.error(`Get ${tableName} error:`, error);
-      res.status(500).json({
-        success: false,
-        error: `Failed to fetch ${tableName}`,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
+      res.status(500).json({ success: false, error: `Failed to fetch ${tableName}` });
     }
   });
 }
@@ -244,5 +232,5 @@ export default function setupSalesOrdersRoutes(app: Express) {
     schema: insertSalesOrderSchema,
     tableName: 'Sales Order',
   });
-  console.log('✅ Sales Orders GET endpoints (new schema) ready');
+  console.log('✅ Sales Orders GET endpoints (with status) ready');
 }
