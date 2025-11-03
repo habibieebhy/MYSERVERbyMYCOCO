@@ -1,4 +1,3 @@
-// server/src/routes/dataFetchingRoutes/dealers.ts
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
 import { dealers, insertDealerSchema } from '../../db/schema';
@@ -53,21 +52,10 @@ function createAutoCRUD(app: Express, config: {
 }) {
   const { endpoint, table, tableName } = config;
 
-  // This is no longer used by buildSort, but is a good reference
-  const SORT_WHITELIST: Record<string, keyof typeof table> = {
-    createdAt: 'createdAt',
-    name: 'name',
-    region: 'region',
-    area: 'area',
-    type: 'type',
-    verification_status: 'verificationStatus',
-    verificationStatus: 'verificationStatus',
-  };
-
   const buildWhere = (q: any) => {
     const conds: (SQL | undefined)[] = [];
 
-    // optional filters (NO default verification filter)
+    // optional filters
     if (q.region) conds.push(eq(table.region, String(q.region)));
     if (q.area) conds.push(eq(table.area, String(q.area)));
     if (q.type) conds.push(eq(table.type, String(q.type)));
@@ -78,6 +66,15 @@ function createAutoCRUD(app: Express, config: {
     if (q.verificationStatus) conds.push(eq(table.verificationStatus, String(q.verificationStatus)));
     if (q.pinCode) conds.push(eq(table.pinCode, String(q.pinCode)));
     if (q.businessType) conds.push(eq(table.businessType, String(q.businessType)));
+
+    // --- ✅ NEW FILTERS ADDED ---
+    if (q.nameOfFirm) {
+      conds.push(ilike(table.nameOfFirm, `%${String(q.nameOfFirm)}%`));
+    }
+    if (q.underSalesPromoterName) {
+      conds.push(ilike(table.underSalesPromoterName, `%${String(q.underSalesPromoterName)}%`));
+    }
+    // --- END NEW FILTERS ---
 
     // hierarchy filters
     const onlyParents = boolish(q.onlyParents);
@@ -99,15 +96,20 @@ function createAutoCRUD(app: Express, config: {
         sql`(${ilike(table.name, s)} 
           OR ${ilike(table.phoneNo, s)} 
           OR ${ilike(table.address, s)} 
-          OR ${ilike(table.emailId, s)})`
+          OR ${ilike(table.emailId, s)}
+          // --- ✅ NEW SEARCH FIELDS ADDED ---
+          OR ${ilike(table.nameOfFirm, s)}
+          OR ${ilike(table.underSalesPromoterName, s)}
+          // --- END NEW SEARCH FIELDS ---
+          )`
       );
     }
 
     // brandSelling filters
     const brands = extractBrands(q);
     if (brands.length) {
-      const arrLiteral = toPgArrayLiteral(brands); // e.g. {Ultratech,Star}
-      const anyBrand = boolish(q.anyBrand); // ?anyBrand=true => overlap (ANY); default is ALL
+      const arrLiteral = toPgArrayLiteral(brands);
+      const anyBrand = boolish(q.anyBrand);
       if (anyBrand) {
         conds.push(sql`${table.brandSelling} && ${arrLiteral}::text[]`);
       } else {
@@ -120,8 +122,7 @@ function createAutoCRUD(app: Express, config: {
     return finalConds.length === 1 ? finalConds[0] : and(...finalConds);
   };
 
-  // --- ✅ TS FIX ---
-  // Re-written buildSort to be 100% type-safe
+  // --- ✅ SORT BY SALES GROWTH ADDED ---
   const buildSort = (sortByRaw?: string, sortDirRaw?: string) => {
     const direction = (sortDirRaw || '').toLowerCase() === 'asc' ? 'asc' : 'desc';
     
@@ -135,9 +136,15 @@ function createAutoCRUD(app: Express, config: {
         return direction === 'asc' ? asc(table.area) : desc(table.area);
       case 'type':
         return direction === 'asc' ? asc(table.type) : desc(table.type);
-      case 'verificationStatus': // Allow both
+      case 'verificationStatus':
       case 'verification_status':
         return direction === 'asc' ? asc(table.verificationStatus) : desc(table.verificationStatus);
+      
+      // --- ✅ NEW SORT OPTION ---
+      case 'salesGrowthPercentage':
+        return direction === 'asc' ? asc(table.salesGrowthPercentage) : desc(table.salesGrowthPercentage);
+      // --- END NEW SORT OPTION ---
+
       case 'createdAt':
         return direction === 'asc' ? asc(table.createdAt) : desc(table.createdAt);
       default:
@@ -161,10 +168,9 @@ function createAutoCRUD(app: Express, config: {
       const orderExpr = buildSort(String(sortBy), String(sortDir));
 
       // 1. Start query
-      let q = db.select().from(table);
+      let q = db.select().from(table).$dynamic();
       // 2. Conditionally apply where
       if (whereCondition) {
-        // @ts-ignore
         q = q.where(whereCondition);
       }
       // 3. Apply sorting/paging and execute
@@ -200,7 +206,6 @@ function createAutoCRUD(app: Express, config: {
       const { id } = req.params;
       const [record] = await db.select().from(table).where(eq(table.id, id)).limit(1);
       
-      // --- CHECK FOR TYPO HERE ---
       if (!record) return res.status(404).json({ success: false, error: `${tableName} not found` });
       
       res.json({ success: true, data: record });

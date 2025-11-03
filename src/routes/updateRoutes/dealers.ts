@@ -78,6 +78,12 @@ const dealerBaseSchema = z.object({
   whatsappNo: strOrNull,
   emailId: z.preprocess((val) => (val === '' ? null : val), z.string().email().nullable().optional()),
   businessType: strOrNull,
+  
+  // --- ✅ NEW FIELDS ADDED ---
+  nameOfFirm: strOrNull,
+  underSalesPromoterName: strOrNull,
+  // --- END NEW FIELDS ---
+  
   gstinNo: strOrNull,
   panNo: strOrNull,
   tradeLicNo: strOrNull,
@@ -154,6 +160,10 @@ async function upsertRadarGeofence(dealer: typeof dealers.$inferSelect, radius?:
     area: dealer.area,
     phoneNo: dealer.phoneNo,
     verificationStatus: dealer.verificationStatus,
+    // --- ✅ NEW FIELDS ADDED ---
+    nameOfFirm: dealer.nameOfFirm,
+    promoterName: dealer.underSalesPromoterName,
+    // --- END NEW FIELDS ---
   };
   Object.keys(metadata).forEach(k => metadata[k] == null && delete metadata[k]);
   if (Object.keys(metadata).length) form.set('metadata', JSON.stringify(metadata));
@@ -225,6 +235,12 @@ export default function setupDealersPatchRoutes(app: Express) {
       if (input.whatsappNo !== undefined) patch.whatsappNo = input.whatsappNo;
       if (input.emailId !== undefined) patch.emailId = input.emailId;
       if (input.businessType !== undefined) patch.businessType = input.businessType;
+      
+      // --- ✅ NEW FIELDS ADDED ---
+      if (input.nameOfFirm !== undefined) patch.nameOfFirm = input.nameOfFirm;
+      if (input.underSalesPromoterName !== undefined) patch.underSalesPromoterName = input.underSalesPromoterName;
+      // --- END NEW FIELDS ---
+
       if (input.gstinNo !== undefined) patch.gstinNo = input.gstinNo;
       if (input.panNo !== undefined) patch.panNo = input.panNo;
       if (input.tradeLicNo !== undefined) patch.tradeLicNo = input.tradeLicNo;
@@ -319,7 +335,7 @@ export default function setupDealersPatchRoutes(app: Express) {
       }
       
       console.error('Update Dealer error:', error);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: 'Failed to update dealer',
         details: (error as Error)?.message ?? 'Unknown error',

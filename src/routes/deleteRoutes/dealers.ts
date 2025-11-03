@@ -4,7 +4,7 @@
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
 import { dealers } from '../../db/schema';
-import { eq, and, gte, lte, inArray } from 'drizzle-orm';
+import { eq, and, gte, lte, inArray, ilike } from 'drizzle-orm'; // <-- Import ilike
 
 // ---------- Radar helpers ----------
 const RADAR_TAG = 'dealer';
@@ -30,6 +30,39 @@ async function deleteRadarGeofence(externalId: string) {
   }
   return { ok: true, code: 200 as const };
 }
+
+// --- ✅ NEW: Helper for bulk deletion logic ---
+async function bulkDeleteDealers(
+  rows: (typeof dealers.$inferSelect)[], 
+  tableName: string
+) {
+  let radarDeleted = 0;
+  const deletableIds: string[] = [];
+  const radarErrors: Array<{ id: string; message: string }> = [];
+
+  for (const r of rows) {
+    const externalId = `dealer:${r.id}`;
+    const result = await deleteRadarGeofence(externalId);
+    if (result.ok) {
+      radarDeleted++;
+      deletableIds.push(r.id);
+    } else {
+      radarErrors.push({ id: r.id, message: result.message ?? 'Radar delete failed' });
+    }
+  }
+
+  if (deletableIds.length) {
+    await db.delete(dealers).where(inArray(dealers.id, deletableIds));
+  }
+
+  return {
+    deletedCount: deletableIds.length,
+    totalCount: rows.length,
+    radarDeleted,
+    radarErrors,
+  };
+}
+// --- END NEW HELPER ---
 
 // ---------- Route factory ----------
 function createAutoCRUD(app: Express, config: {
@@ -90,29 +123,12 @@ function createAutoCRUD(app: Express, config: {
         return res.status(404).json({ success: false, error: `No ${tableName}s found for user ${userId}` });
       }
 
-      let radarDeleted = 0;
-      const deletableIds: string[] = [];
-      const radarErrors: Array<{ id: string; message: string }> = [];
-
-      for (const r of rows) {
-        const externalId = `dealer:${r.id}`;
-        const result = await deleteRadarGeofence(externalId);
-        if (result.ok) {
-          radarDeleted++;
-          deletableIds.push(r.id);
-        } else {
-          radarErrors.push({ id: r.id, message: result.message ?? 'Radar delete failed' });
-        }
-      }
-
-      if (deletableIds.length) {
-        await db.delete(table).where(inArray(table.id, deletableIds));
-      }
+      const { deletedCount, totalCount, radarDeleted, radarErrors } = await bulkDeleteDealers(rows, tableName);
 
       return res.json({
         success: true,
-        message: `${deletableIds.length}/${rows.length} ${tableName}(s) deleted for user ${userId}`,
-        deletedCount: deletableIds.length,
+        message: `${deletedCount}/${totalCount} ${tableName}(s) deleted for user ${userId}`,
+        deletedCount,
         radarDeleted,
         radarErrors,
       });
@@ -139,35 +155,82 @@ function createAutoCRUD(app: Express, config: {
         return res.status(404).json({ success: false, error: `No ${tableName}s found for parent ${parentDealerId}` });
       }
 
-      let radarDeleted = 0;
-      const deletableIds: string[] = [];
-      const radarErrors: Array<{ id: string; message: string }> = [];
-
-      for (const r of rows) {
-        const externalId = `dealer:${r.id}`;
-        const result = await deleteRadarGeofence(externalId);
-        if (result.ok) {
-          radarDeleted++;
-          deletableIds.push(r.id);
-        } else {
-          radarErrors.push({ id: r.id, message: result.message ?? 'Radar delete failed' });
-        }
-      }
-
-      if (deletableIds.length) {
-        await db.delete(table).where(inArray(table.id, deletableIds));
-      }
+      const { deletedCount, totalCount, radarDeleted, radarErrors } = await bulkDeleteDealers(rows, tableName);
 
       return res.json({
         success: true,
-        message: `${deletableIds.length}/${rows.length} ${tableName}(s) deleted for parent ${parentDealerId}`,
-        deletedCount: deletableIds.length,
+        message: `${deletedCount}/${totalCount} ${tableName}(s) deleted for parent ${parentDealerId}`,
+        deletedCount,
         radarDeleted,
         radarErrors,
       });
     } catch (error) {
       console.error(`Delete ${tableName}s by Parent error:`, error);
-      // --- ✅ TS FIX: Changed 5Z00 to 500 ---
+      return res.status(500).json({
+        success: false,
+        error: `Failed to delete ${tableName}s`,
+        details: (error as Error)?.message ?? 'Unknown error',
+      });
+    }
+  });
+
+  // --- ✅ NEW: DELETE BY FIRM NAME (bulk) ---
+  app.delete(`/api/${endpoint}/firm-name/:nameOfFirm`, async (req: Request, res: Response) => {
+    try {
+      const { nameOfFirm } = req.params;
+      if (req.query.confirm !== 'true') {
+        return res.status(400).json({ success: false, error: 'Add ?confirm=true to proceed.' });
+      }
+      
+      // Use ilike for case-insensitive matching, but eq() for exact match
+      const rows = await db.select().from(table).where(eq(table.nameOfFirm, nameOfFirm));
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: `No ${tableName}s found with firm name ${nameOfFirm}` });
+      }
+  
+      const { deletedCount, totalCount, radarDeleted, radarErrors } = await bulkDeleteDealers(rows, tableName);
+  
+      return res.json({
+        success: true,
+        message: `${deletedCount}/${totalCount} ${tableName}(s) deleted with firm name ${nameOfFirm}`,
+        deletedCount,
+        radarDeleted,
+        radarErrors,
+      });
+    } catch (error) {
+      console.error(`Delete ${tableName}s by Firm Name error:`, error);
+      return res.status(500).json({
+        success: false,
+        error: `Failed to delete ${tableName}s`,
+        details: (error as Error)?.message ?? 'Unknown error',
+      });
+    }
+  });
+
+  // --- ✅ NEW: DELETE BY PROMOTER NAME (bulk) ---
+  app.delete(`/api/${endpoint}/promoter/:promoterName`, async (req: Request, res: Response) => {
+    try {
+      const { promoterName } = req.params;
+      if (req.query.confirm !== 'true') {
+        return res.status(400).json({ success: false, error: 'Add ?confirm=true to proceed.' });
+      }
+      
+      const rows = await db.select().from(table).where(eq(table.underSalesPromoterName, promoterName));
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: `No ${tableName}s found under promoter ${promoterName}` });
+      }
+  
+      const { deletedCount, totalCount, radarDeleted, radarErrors } = await bulkDeleteDealers(rows, tableName);
+  
+      return res.json({
+        success: true,
+        message: `${deletedCount}/${totalCount} ${tableName}(s) deleted under promoter ${promoterName}`,
+        deletedCount,
+        radarDeleted,
+        radarErrors,
+      });
+    } catch (error) {
+      console.error(`Delete ${tableName}s by Promoter error:`, error);
       return res.status(500).json({
         success: false,
         error: `Failed to delete ${tableName}s`,
@@ -200,29 +263,12 @@ function createAutoCRUD(app: Express, config: {
         return res.status(404).json({ success: false, error: `No ${tableName}s in specified date range` });
       }
 
-      let radarDeleted = 0;
-      const deletableIds: string[] = [];
-      const radarErrors: Array<{ id: string; message: string }> = [];
-
-      for (const r of rows) {
-        const externalId = `dealer:${r.id}`;
-        const result = await deleteRadarGeofence(externalId);
-        if (result.ok) {
-          radarDeleted++;
-          deletableIds.push(r.id);
-        } else {
-          radarErrors.push({ id: r.id, message: result.message ?? 'Radar delete failed' });
-        }
-      }
-
-      if (deletableIds.length) {
-        await db.delete(table).where(inArray(table.id, deletableIds));
-      }
+      const { deletedCount, totalCount, radarDeleted, radarErrors } = await bulkDeleteDealers(rows, tableName);
 
       return res.json({
         success: true,
-        message: `${deletableIds.length}/${rows.length} ${tableName}(s) deleted in range ${startDate}..${endDate}`,
-        deletedCount: deletableIds.length,
+        message: `${deletedCount}/${totalCount} ${tableName}(s) deleted in range ${startDate}..${endDate}`,
+        deletedCount,
         radarDeleted,
         radarErrors,
       });

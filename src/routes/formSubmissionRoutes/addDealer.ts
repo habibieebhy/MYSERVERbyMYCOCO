@@ -92,7 +92,7 @@ const dealerInputSchema = z.object({
   feedbacks: z.string().min(1),
   remarks: strOrNull,
 
-  // --- ✅ ADDED MISSING FIELDS ---
+  // --- ADDED FOR PRISMA PARITY ---
   dealerDevelopmentStatus: strOrNull,
   dealerDevelopmentObstacle: strOrNull,
   salesGrowthPercentage: numOrNull,
@@ -105,6 +105,12 @@ const dealerInputSchema = z.object({
   whatsappNo: strOrNull,
   emailId: z.preprocess((val) => (val === '' ? null : val), z.string().email().nullable().optional()),
   businessType: strOrNull,
+  
+  // --- ✅ NEW FIELDS ADDED ---
+  nameOfFirm: strOrNull,
+  underSalesPromoterName: strOrNull,
+  // --- END NEW FIELDS ---
+
   gstinNo: strOrNull,
   panNo: strOrNull,
   tradeLicNo: strOrNull,
@@ -209,7 +215,7 @@ function createAutoCRUD(
         feedbacks: input.feedbacks,
         remarks: input.remarks ?? null,
 
-        // --- ✅ ADDED MISSING FIELDS ---
+        // --- ADDED FOR PRISMA PARITY ---
         dealerDevelopmentStatus: input.dealerDevelopmentStatus ?? null,
         dealerDevelopmentObstacle: input.dealerDevelopmentObstacle ?? null,
         salesGrowthPercentage: input.salesGrowthPercentage ? String(input.salesGrowthPercentage) : null,
@@ -220,6 +226,12 @@ function createAutoCRUD(
         whatsappNo: input.whatsappNo ?? null,
         emailId: input.emailId ?? null,
         businessType: input.businessType ?? null,
+
+        // --- ✅ NEW FIELDS ADDED ---
+        nameOfFirm: input.nameOfFirm ?? null,
+        underSalesPromoterName: input.underSalesPromoterName ?? null,
+        // --- END NEW FIELDS ---
+
         gstinNo: input.gstinNo ?? null,
         panNo: input.panNo ?? null,
         tradeLicNo: input.tradeLicNo ?? null,

@@ -228,6 +228,12 @@ export const dealers = pgTable("dealers", {
   whatsappNo: varchar("whatsapp_no", { length: 20 }),
   emailId: varchar("email_id", { length: 255 }),
   businessType: varchar("business_type", { length: 100 }),
+  
+  // --- ✅ NEW FIELDS ADDED ---
+  nameOfFirm: varchar("nameOfFirm", {length: 500}),
+  underSalesPromoterName: varchar("underSalesPromoterName", {length: 200}),
+  // --- END NEW FIELDS ---
+
   gstinNo: varchar("gstin_no", { length: 20 }),
   panNo: varchar("pan_no", { length: 20 }),
   tradeLicNo: varchar("trade_lic_no", { length: 150 }),
