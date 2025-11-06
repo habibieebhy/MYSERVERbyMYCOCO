@@ -11,7 +11,7 @@ import { randomUUID } from 'crypto'; // Use crypto for UUID
 type DealerInsert = InferInsertModel<typeof dealers>;
 
 // -------- helpers --------
-const toStringArray = (v: unknown): string[] => {
+export const toStringArray = (v: unknown): string[] => {
   if (Array.isArray(v)) return v.map(String).map(s => s.trim()).filter(Boolean);
   if (typeof v === 'string') {
     const t = v.trim();
@@ -22,7 +22,7 @@ const toStringArray = (v: unknown): string[] => {
 };
 
 // empty string -> null for strings
-const strOrNull = z.preprocess((val) => {
+export const strOrNull = z.preprocess((val) => {
   if (val === '') return null;
   if (typeof val === 'string') {
     const t = val.trim();
@@ -32,7 +32,7 @@ const strOrNull = z.preprocess((val) => {
 }, z.string().nullable().optional());
 
 // empty string -> null for dates (and coerce)
-const dateOrNull = z.preprocess((val) => {
+export const dateOrNull = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return null;
   try {
     return new Date(String(val));
@@ -42,14 +42,14 @@ const dateOrNull = z.preprocess((val) => {
 }, z.date().nullable().optional());
 
 // number (coerced) nullable, empty string -> null
-const numOrNull = z.preprocess((val) => {
+export const numOrNull = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return null;
   const n = Number(val);
   return isNaN(n) ? null : n;
 }, z.number().nullable().optional());
 
 // int (coerced) nullable
-const intOrNull = z.preprocess((val) => {
+export const intOrNull = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return null;
   const n = parseInt(String(val), 10);
   return isNaN(n) ? null : n;
@@ -57,7 +57,7 @@ const intOrNull = z.preprocess((val) => {
 
 // --- ✅ NEW HELPER ---
 // Converts Date | null to "YYYY-MM-DD" | null
-const toDateOnlyString = (d: Date | null | undefined): string | null => {
+export const toDateOnlyString = (d: Date | null | undefined): string | null => {
   if (!d) return null;
   try {
     return d.toISOString().slice(0, 10);
@@ -67,7 +67,7 @@ const toDateOnlyString = (d: Date | null | undefined): string | null => {
 };
 
 // -------- input schema (coercing everything safely) --------
-const dealerInputSchema = z.object({
+export const dealerInputSchema = z.object({
   userId: intOrNull,
   type: z.string().min(1),
 

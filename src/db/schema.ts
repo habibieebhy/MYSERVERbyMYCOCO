@@ -1,7 +1,7 @@
 // server/src/db/schema.ts
 import {
   pgTable, serial, integer, varchar, text, boolean, timestamp, date, numeric,
-  uniqueIndex, index
+  uniqueIndex, index, jsonb, uuid
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -98,12 +98,20 @@ export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
   verificationStatus: varchar("verification_status", { length: 50 }),
   additionalVisitRemarks: varchar("additional_visit_remarks", { length: 500 }),
 
+  bulkOpId: varchar("bulk_op_id", { length: 50 }),
+  idempotencyKey: varchar("idempotency_key", { length: 120 }),
+
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
   index("idx_permanent_journey_plans_user_id").on(t.userId),
   index("idx_permanent_journey_plans_created_by_id").on(t.createdById),
-  index("idx_pjp_dealer_id").on(t.dealerId), // <-- NEW INDEX ADDED
+  index("idx_pjp_dealer_id").on(t.dealerId),
+  index("idx_pjp_bulk_op_id").on(t.bulkOpId),
+  uniqueIndex("uniq_pjp_user_dealer_plan_date").on(t.userId, t.dealerId, t.planDate),
+  uniqueIndex("uniq_pjp_idempotency_key_not_null")
+    .on(t.idempotencyKey)
+    .where(sql`${t.idempotencyKey} IS NOT NULL`),
 ]);
 
 /* ========================= daily_visit_reports (FIXED w/ Sub Dealers) ========================= */
@@ -234,7 +242,7 @@ export const dealers = pgTable("dealers", {
   underSalesPromoterName: varchar("underSalesPromoterName", {length: 200}),
   // --- END NEW FIELDS ---
 
-  gstinNo: varchar("gstin_no", { length: 20 }),
+  gstinNo: varchar("gstin_no", { length: 20 }).unique(),
   panNo: varchar("pan_no", { length: 20 }),
   tradeLicNo: varchar("trade_lic_no", { length: 150 }),
   aadharNo: varchar("aadhar_no", { length: 20 }),
@@ -663,6 +671,16 @@ export const masterConnectedTable = pgTable("master_connected_table", {
   index("idx_mct_dealer_brand_map_id").on(t.dealerBrandMappingId),
 ]);
 
+// Tally Data Table
+export const tallyRaw = pgTable("tally_raw", {
+ id: uuid("id").defaultRandom().primaryKey(),
+ collectionName: text("collection_name").notNull(),
+ rawData: jsonb("raw_data").notNull(),
+ syncedAt: timestamp("synced_at", { withTimezone: true })
+  .defaultNow()
+ .notNull(),
+});
+
 /* ========================= drizzle-zod insert schemas ========================= */
 export const insertCompanySchema = createInsertSchema(companies);
 export const insertUserSchema = createInsertSchema(users);
@@ -688,3 +706,4 @@ export const insertTsoMeetingSchema = createInsertSchema(tsoMeetings);
 export const insertGiftInventorySchema = createInsertSchema(giftInventory);
 export const insertGiftAllocationLogSchema = createInsertSchema(giftAllocationLogs);
 export const insertMasterConnectedTableSchema = createInsertSchema(masterConnectedTable);
+export const insertTallyRawTableSchema = createInsertSchema(tallyRaw);
