@@ -27,6 +27,7 @@ import setupDailyVisitReportsRoutes from './src/routes/dataFetchingRoutes/dvr';
 import setupSalesmanAttendanceRoutes from './src/routes/dataFetchingRoutes/salesmanAttendance';
 import setupTechnicalVisitReportsRoutes from './src/routes/dataFetchingRoutes/tvr';
 import setupTsoMeetingsGetRoutes from './src/routes/dataFetchingRoutes/tsoMeetings';
+import setupDealerSyncRoutes from './src/routes/dataSync/dealer';
 
 // --- Import DELETE route setups ---
 import setupDealersDeleteRoutes from './src/routes/deleteRoutes/dealers';
@@ -206,6 +207,7 @@ setupDailyVisitReportsPatchRoutes(app);
 setupTechnicalVisitReportsPatchRoutes(app);
 setupTsoMeetingsPatchRoutes(app);
 setupSalesOrdersPatchRoutes(app);
+setupDealerSyncRoutes(app);
 
 // ---------- GEO TRACKING SETUP--------
 setupGeoTrackingRoutes(app);
