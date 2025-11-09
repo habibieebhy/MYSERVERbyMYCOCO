@@ -23,8 +23,8 @@ const pjpInputSchema = z.object({
   planDate: z.coerce.date(),
   areaToBeVisited: z.string().max(500).min(1),
   description: strOrNull,
-  status: z.string(),
-  verificationStatus: z.string().max(50).min(1).default('PENDING'),
+  status: z.string().max(50).min(1).default('PENDING'),
+  verificationStatus: strOrNull,
   additionalVisitRemarks: strOrNull,
   idempotencyKey: z.string().max(120).optional(), // harmless to keep, not used in conflict now
 }).strict();
@@ -37,8 +37,7 @@ const bulkSchema = z.object({
   batchSizePerDay: z.coerce.number().int().min(1).max(500).default(8),
   areaToBeVisited: z.string().max(500).min(1),
   description: strOrNull,
-  status: z.string(),
-  verificationStatus: z.string().max(50).min(1).default('PENDING'),
+  status: z.string().max(50).default('PENDING'),
   bulkOpId: z.string().max(50).optional(),
   idempotencyKey: z.string().max(120).optional(),
 }).strict();
@@ -89,13 +88,23 @@ export default function setupPermanentJourneyPlansPostRoutes(app: Express) {
   });
 
   // BULK CREATE (unchanged; already targets composite unique)
+  // BULK CREATE — FIXED to write verificationStatus
   app.post('/api/bulkpjp', async (req: Request, res: Response) => {
     try {
       const input = bulkSchema.parse(req.body);
 
       const {
-        userId, createdById, dealerIds, baseDate,
-        batchSizePerDay, areaToBeVisited, description, status, verificationStatus, bulkOpId, idempotencyKey
+        userId,
+        createdById,
+        dealerIds,
+        baseDate,
+        batchSizePerDay,
+        areaToBeVisited,
+        description,
+        status,
+        verificationStatus,            // <<— grab it
+        bulkOpId,
+        idempotencyKey,
       } = input;
 
       const rows = dealerIds.map((dealerId, i) => {
@@ -109,8 +118,8 @@ export default function setupPermanentJourneyPlansPostRoutes(app: Express) {
           planDate,
           areaToBeVisited,
           description: description ?? null,
-          status,
-          verificationStatus,
+          status,                       // e.g. 'PENDING'
+          verificationStatus,           // e.g. 'PENDING' (now NOT null)
           bulkOpId,
           idempotencyKey,
         };
@@ -144,7 +153,9 @@ export default function setupPermanentJourneyPlansPostRoutes(app: Express) {
       });
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ success: false, error: 'Validation failed', details: error.issues });
+        return res
+          .status(400)
+          .json({ success: false, error: 'Validation failed', details: error.issues });
       }
       console.error('Bulk PJP error:', error);
       return res.status(500).json({ success: false, error: 'Failed to process bulk PJP' });
