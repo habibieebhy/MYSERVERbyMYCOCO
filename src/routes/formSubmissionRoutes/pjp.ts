@@ -118,8 +118,13 @@ export default function setupPermanentJourneyPlansPostRoutes(app: Express) {
           planDate,
           areaToBeVisited,
           description: description ?? null,
-          status,                       // e.g. 'PENDING'
-          verificationStatus,           // e.g. 'PENDING' (now NOT null)
+
+          // status comes from UI (PENDING)
+          status,
+
+          // ✅ Hard-code verificationStatus to PENDING at insert time
+          verificationStatus: 'PENDING',
+
           bulkOpId,
           idempotencyKey,
         };
