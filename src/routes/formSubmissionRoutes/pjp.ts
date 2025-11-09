@@ -95,7 +95,7 @@ export default function setupPermanentJourneyPlansPostRoutes(app: Express) {
 
       const {
         userId, createdById, dealerIds, baseDate,
-        batchSizePerDay, areaToBeVisited, description, status, bulkOpId, idempotencyKey
+        batchSizePerDay, areaToBeVisited, description, status, verificationStatus, bulkOpId, idempotencyKey
       } = input;
 
       const rows = dealerIds.map((dealerId, i) => {
@@ -110,6 +110,7 @@ export default function setupPermanentJourneyPlansPostRoutes(app: Express) {
           areaToBeVisited,
           description: description ?? null,
           status,
+          verificationStatus,
           bulkOpId,
           idempotencyKey,
         };
