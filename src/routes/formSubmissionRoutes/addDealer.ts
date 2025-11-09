@@ -1,7 +1,7 @@
 // server/src/routes/postRoutes/dealers.ts
 // Dealers POST endpoint (create + Radar geofence) with robust empty-string/null coercion
 
-import { Request, Response, Express } from 'express';
+import { Request, Response, Express } from 'express'; 
 import { db } from '../../db/db';
 import { dealers } from '../../db/schema';
 import { z } from 'zod';

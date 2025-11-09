@@ -23,8 +23,8 @@ const pjpInputSchema = z.object({
   planDate: z.coerce.date(),
   areaToBeVisited: z.string().max(500).min(1),
   description: strOrNull,
-  status: z.string().max(50).min(1).default('PENDING'),
-  verificationStatus: strOrNull,
+  status: z.string(),
+  verificationStatus: z.string().max(50).min(1).default('PENDING'),
   additionalVisitRemarks: strOrNull,
   idempotencyKey: z.string().max(120).optional(), // harmless to keep, not used in conflict now
 }).strict();
@@ -37,7 +37,8 @@ const bulkSchema = z.object({
   batchSizePerDay: z.coerce.number().int().min(1).max(500).default(8),
   areaToBeVisited: z.string().max(500).min(1),
   description: strOrNull,
-  status: z.string().max(50).default('PENDING'),
+  status: z.string(),
+  verificationStatus: z.string().max(50).min(1).default('PENDING'),
   bulkOpId: z.string().max(50).optional(),
   idempotencyKey: z.string().max(120).optional(),
 }).strict();
