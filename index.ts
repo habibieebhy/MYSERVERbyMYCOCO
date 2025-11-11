@@ -5,28 +5,33 @@ import path from 'path';
 import dotenv from 'dotenv';
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 // --- Import ALL your API route setups ---
-import setupAuthRoutes from './src/routes/auth';  // NEW
-import setupUsersRoutes from './src/routes/users'; // NEW
-import setupCompaniesRoutes from './src/routes/companies'; // NEW2
-import setupLogoutAuthRoutes from './src/routes/logout'; // NEW2
+import setupAuthRoutes from './src/routes/auth'; 
+import setupUsersRoutes from './src/routes/users'; 
+import setupCompaniesRoutes from './src/routes/companies'; 
+import setupLogoutAuthRoutes from './src/routes/logout';
 import setupR2Upload from './src/routes/cloudfareRoutes/cloudfare'; 
 import setupBrandsAndMappingRoutes from './src/routes/dataFetchingRoutes/brandMappingFetch';
-import setupClientReportsRoutes from './src/routes/dataFetchingRoutes/clientReports';
-import setupCollectionReportsRoutes from './src/routes/dataFetchingRoutes/collectionReports';
 import setupCompetitionReportsRoutes from './src/routes/dataFetchingRoutes/competetionReports';
 import setupDailyTasksRoutes from './src/routes/dataFetchingRoutes/dailyTasks';
 import setupDealersRoutes from './src/routes/dataFetchingRoutes/dealers';
 import setupPJPRoutes from './src/routes/dataFetchingRoutes/pjp';
-import setupDdpRoutes from './src/routes/dataFetchingRoutes/ddp';
 import setupDealerReportsAndScoresRoutes from './src/routes/dataFetchingRoutes/dealerReportandScores';
 import setupRatingsRoutes from './src/routes/dataFetchingRoutes/ratings';
 import setupSalesmanLeaveApplicationsRoutes from './src/routes/dataFetchingRoutes/salesmanLeaveApplications';
-import setupSalesReportRoutes from './src/routes/dataFetchingRoutes/salesReports';
 import setupSalesOrdersRoutes from './src/routes/dataFetchingRoutes/salesOrder';
 import setupDailyVisitReportsRoutes from './src/routes/dataFetchingRoutes/dvr';
 import setupSalesmanAttendanceRoutes from './src/routes/dataFetchingRoutes/salesmanAttendance';
 import setupTechnicalVisitReportsRoutes from './src/routes/dataFetchingRoutes/tvr';
 import setupTsoMeetingsGetRoutes from './src/routes/dataFetchingRoutes/tsoMeetings';
+import setupMasonsOnMeetingsGetRoutes from './src/routes/dataFetchingRoutes/masonOnMeeting';
+import setupMasonsOnSchemeGetRoutes from './src/routes/dataFetchingRoutes/masonOnScheme';
+import setupMasonsPcSideRoutes from './src/routes/dataFetchingRoutes/masonpcSide';
+import setupSchemesOffersRoutes from './src/routes/dataFetchingRoutes/schemesOffers';
+import setupBagLiftsGetRoutes from './src/routes/dataFetchingRoutes/bagsLift';
+import setupPointsLedgerGetRoutes from './src/routes/dataFetchingRoutes/pointsLedger';
+import setupRewardCategoriesGetRoutes from './src/routes/dataFetchingRoutes/rewardCategories';
+
+// Data Sync UPSERT
 import setupDealerSyncRoutes from './src/routes/dataSync/dealer';
 
 // --- Import DELETE route setups ---
@@ -35,10 +40,8 @@ import setupPermanentJourneyPlansDeleteRoutes from './src/routes/deleteRoutes/pj
 import setupTechnicalVisitReportsDeleteRoutes from './src/routes/deleteRoutes/tvr';
 import setupDailyVisitReportsDeleteRoutes from './src/routes/deleteRoutes/dvr';
 import setupDailyTasksDeleteRoutes from './src/routes/deleteRoutes/dailytask';
-import setupSalesReportDeleteRoutes from './src/routes/deleteRoutes/salesreport';
 import setupSalesmanLeaveApplicationsDeleteRoutes from './src/routes/deleteRoutes/salesmanleave';
 import setupCompetitionReportsDeleteRoutes from './src/routes/deleteRoutes/competetionreports';
-import setupColllectionReportsDeleteRoutes from './src/routes/deleteRoutes/collectionreports';
 import setupBrandsDeleteRoutes from './src/routes/deleteRoutes/brands';
 import setupRatingsDeleteRoutes from './src/routes/deleteRoutes/ratings';
 import setupSalesOrdersDeleteRoutes from './src/routes/deleteRoutes/salesOrder';
@@ -51,13 +54,9 @@ import setupTechnicalVisitReportsPostRoutes from './src/routes/formSubmissionRou
 import setupPermanentJourneyPlansPostRoutes from './src/routes/formSubmissionRoutes/pjp';
 import setupDealersPostRoutes from './src/routes/formSubmissionRoutes/addDealer';
 import setupSalesmanLeaveApplicationsPostRoutes from './src/routes/formSubmissionRoutes/salesManleave';
-import setupClientReportsPostRoutes from './src/routes/formSubmissionRoutes/clientReport';
 import setupCompetitionReportsPostRoutes from './src/routes/formSubmissionRoutes/competitionReport';
 import setupDailyTasksPostRoutes from './src/routes/formSubmissionRoutes/dailytasks';
 import setupDealerReportsAndScoresPostRoutes from './src/routes/formSubmissionRoutes/dealerReportsAndScores';
-import setupSalesReportPostRoutes from './src/routes/formSubmissionRoutes/salesreport';
-import setupCollectionReportsPostRoutes from './src/routes/formSubmissionRoutes/collectionReport';
-import setupDdpPostRoutes from './src/routes/formSubmissionRoutes/ddp';
 import setupRatingsPostRoutes from './src/routes/formSubmissionRoutes/ratings';
 import setupBrandsPostRoutes from './src/routes/formSubmissionRoutes/brand';
 import setupSalesOrdersPostRoutes from './src/routes/formSubmissionRoutes/salesOrder';
@@ -65,6 +64,12 @@ import setupDealerBrandMappingPostRoutes from './src/routes/formSubmissionRoutes
 import setupAttendanceCheckInRoutes from './src/routes/formSubmissionRoutes/attendanceIn';
 import setupAttendanceCheckOutRoutes from './src/routes/formSubmissionRoutes/attendanceOut';
 import setupTsoMeetingsPostRoutes from './src/routes/formSubmissionRoutes/tsoMeetings';
+import setupMasonOnMeetingPostRoutes from './src/routes/formSubmissionRoutes/masonOnMeeting';
+import setupMasonOnSchemePostRoutes from './src/routes/formSubmissionRoutes/masonOnScheme';
+import setupMasonPcSidePostRoutes from './src/routes/formSubmissionRoutes/masonpcSide';
+import setupSchemesOffersPostRoutes from './src/routes/formSubmissionRoutes/schemesOffers';
+import setupBagLiftsPostRoute from './src/routes/formSubmissionRoutes/bagsLift';
+import setupRewardsRedemptionPostRoute from './src/routes/formSubmissionRoutes/rewardsRedemption';
 
 
 // --- Import UPDATE (PATCH) route setups ---
@@ -79,6 +84,8 @@ import setupDailyVisitReportsPatchRoutes from './src/routes/updateRoutes/dvr';
 import setupTechnicalVisitReportsPatchRoutes from './src/routes/updateRoutes/tvr';
 import setupTsoMeetingsPatchRoutes from './src/routes/updateRoutes/tsoMeetings';
 import setupSalesOrdersPatchRoutes from './src/routes/updateRoutes/salesorder';
+import setupMasonPcSidePatchRoutes from './src/routes/updateRoutes/masonpcSide';
+import setupSchemesOffersPatchRoutes from './src/routes/updateRoutes/schemesOffers';
 
 // --- Import GEO TRACKING route setups ---
 import setupGeoTrackingRoutes from './src/routes/geoTrackingRoutes/geoTracking';
@@ -142,34 +149,35 @@ setupDailyTasksRoutes(app);              // /api/daily-tasks/*
 setupPJPRoutes(app);                     // /api/pjp/*
 
 // Reports Endpoints (GET)
-setupClientReportsRoutes(app);           // /api/client-reports/*
-setupCollectionReportsRoutes(app);       // /api/collection-reports/*
 setupCompetitionReportsRoutes(app);      // /api/competition-reports/*
 setupDailyVisitReportsRoutes(app);       // /api/daily-visit-reports/*
 setupTechnicalVisitReportsRoutes(app);   // /api/technical-visit-reports/*
 setupTsoMeetingsGetRoutes(app);
 
 // Additional Data Endpoints (GET)
-setupDdpRoutes(app);                     // /api/ddp/*
 setupDealerReportsAndScoresRoutes(app);  // /api/dealer-reports-scores/*
 setupRatingsRoutes(app);                 // /api/ratings/*
 setupSalesmanLeaveApplicationsRoutes(app); // /api/leave-applications/*
-setupSalesReportRoutes(app);             // /api/sales-reports/*
 setupSalesOrdersRoutes(app);             // /api/sales-orders/*
 setupSalesmanAttendanceRoutes(app);      // /api/salesman-attendance/*
+
+// mason pc side
+setupMasonsOnMeetingsGetRoutes(app);
+setupMasonsOnSchemeGetRoutes(app);
+setupMasonsPcSideRoutes(app);
+setupSchemesOffersRoutes(app);
+setupBagLiftsGetRoutes(app);
+setupPointsLedgerGetRoutes(app);
+
 
 // POST Endpoints
 setupTechnicalVisitReportsPostRoutes(app); // POST /api/technical-visit-reports/*
 setupPermanentJourneyPlansPostRoutes(app); // POST /api/permanent-journey-plans/*
 setupDealersPostRoutes(app);             // POST /api/dealers/*
 setupSalesmanLeaveApplicationsPostRoutes(app); // POST /api/leave-applications/*
-setupClientReportsPostRoutes(app);       // POST /api/client-reports/*
 setupCompetitionReportsPostRoutes(app);  // POST /api/competition-reports/*
 setupDailyTasksPostRoutes(app);          // POST /api/daily-tasks/*
 setupDealerReportsAndScoresPostRoutes(app); // POST /api/dealer-reports-scores/*
-setupSalesReportPostRoutes(app);         // POST /api/sales-reports/*
-setupCollectionReportsPostRoutes(app);   // POST /api/collection-reports/*
-setupDdpPostRoutes(app);                 // POST /api/ddp/*
 setupRatingsPostRoutes(app);             // POST /api/ratings/*
 setupBrandsPostRoutes(app);              // POST /api/brands/*
 setupSalesOrdersPostRoutes(app);         // POST /api/sales-orders/*
@@ -179,16 +187,21 @@ setupAttendanceCheckInRoutes(app);       // POST /api/attendance/check-in/*
 setupAttendanceCheckOutRoutes(app);      // POST /api/attendance/check-out/*
 setupTsoMeetingsPostRoutes(app);         // TSO meeting r ENDPOINT r initiations kaam kore
 
+// mason pc side
+setupMasonOnMeetingPostRoutes(app);
+setupMasonOnSchemePostRoutes(app);
+setupMasonPcSidePostRoutes(app);
+setupSchemesOffersPostRoutes(app);
+setupRewardCategoriesGetRoutes(app);
+
 // DELETE Endpoints
 setupDealersDeleteRoutes(app);           // DELETE /api/dealers/*
 setupPermanentJourneyPlansDeleteRoutes(app); // DELETE /api/permanent-journey-plans/*
 setupTechnicalVisitReportsDeleteRoutes(app); // DELETE /api/technical-visit-reports/*
 setupDailyVisitReportsDeleteRoutes(app); // DELETE /api/daily-visit-reports/*
 setupDailyTasksDeleteRoutes(app);        // DELETE /api/daily-tasks/*
-setupSalesReportDeleteRoutes(app);       // DELETE /api/sales-reports/*
 setupSalesmanLeaveApplicationsDeleteRoutes(app); // DELETE /api/leave-applications/*
 setupCompetitionReportsDeleteRoutes(app); // DELETE /api/competition-reports/*
-setupColllectionReportsDeleteRoutes(app); // DELETE /api/collection-reports/*
 setupBrandsDeleteRoutes(app);            // DELETE /api/brands/*
 setupRatingsDeleteRoutes(app);           // DELETE /api/ratings/*
 setupSalesOrdersDeleteRoutes(app);       // DELETE /api/sales-orders/*
@@ -208,6 +221,12 @@ setupTechnicalVisitReportsPatchRoutes(app);
 setupTsoMeetingsPatchRoutes(app);
 setupSalesOrdersPatchRoutes(app);
 setupDealerSyncRoutes(app);
+
+// mason pc side
+setupMasonPcSidePatchRoutes(app);
+setupSchemesOffersPatchRoutes(app);
+setupBagLiftsPostRoute(app);
+setupRewardsRedemptionPostRoute(app);
 
 // ---------- GEO TRACKING SETUP--------
 setupGeoTrackingRoutes(app);

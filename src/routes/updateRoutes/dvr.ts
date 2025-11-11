@@ -51,6 +51,7 @@ const dvrPatchSchema = z
     anyRemarks: strOrNull,
     checkInTime: z.coerce.date().optional(),
     checkOutTime: z.coerce.date().nullable().optional(),
+    timeSpentinLoc: strOrNull,
     inTimeImageUrl: strOrNull,
     outTimeImageUrl: strOrNull,
     pjpId: z.string().max(255).nullable().optional(),
@@ -112,6 +113,7 @@ export default function setupDailyVisitReportsPatchRoutes(app: Express) {
       if (input.anyRemarks !== undefined) patch.anyRemarks = input.anyRemarks;
       if (input.checkInTime !== undefined) patch.checkInTime = input.checkInTime;
       if (input.checkOutTime !== undefined) patch.checkOutTime = input.checkOutTime;
+      if (input.timeSpentinLoc !== undefined) patch.timeSpentinLoc = input.timeSpentinLoc;
       if (input.inTimeImageUrl !== undefined) patch.inTimeImageUrl = input.inTimeImageUrl;
       if (input.outTimeImageUrl !== undefined) patch.outTimeImageUrl = input.outTimeImageUrl;
       if (input.pjpId !== undefined) patch.pjpId = input.pjpId;

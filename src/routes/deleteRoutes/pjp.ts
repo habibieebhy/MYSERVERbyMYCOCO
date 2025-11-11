@@ -1,7 +1,7 @@
 // server/src/routes/deleteRoutes/pjp.ts
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
-import { permanentJourneyPlans, insertPermanentJourneyPlanSchema, masterConnectedTable } from '../../db/schema';
+import { permanentJourneyPlans, insertPermanentJourneyPlanSchema } from '../../db/schema';
 import { eq, and, gte, lte, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 

@@ -8,19 +8,28 @@ import {
   dealers,
   salesmanAttendance,
   salesmanLeaveApplications,
-  clientReports,
   competitionReports,
   geoTracking,
   salesOrders,
   dailyTasks,
   dealerReportsAndScores,
-  salesReport,
-  collectionReports,
-  ddp,
   ratings,
   brands,
   dealerBrandMapping,
-  masterConnectedTable
+  tsoMeetings,
+  rewards, // Mapped from GiftInventory
+  rewardCategories, // NEW
+  rewardRedemptions, // NEW
+  giftAllocationLogs,
+  masonPcSide,
+  otpVerifications,
+  schemesOffers,
+  masonOnScheme,
+  masonsOnMeetings,
+  kycSubmissions, // NEW
+  tsoAssignments, // NEW
+  bagLifts, // NEW
+  pointsLedger, // NEW
 } from "../db/schema";
 import { db } from "./db";
 import { eq, and, gte, lte, desc, asc, sql, isNull } from "drizzle-orm";
@@ -42,8 +51,6 @@ export type SalesmanAttendance = typeof salesmanAttendance.$inferSelect;
 export type InsertSalesmanAttendance = typeof salesmanAttendance.$inferInsert;
 export type SalesmanLeaveApplication = typeof salesmanLeaveApplications.$inferSelect;
 export type InsertSalesmanLeaveApplication = typeof salesmanLeaveApplications.$inferInsert;
-export type ClientReport = typeof clientReports.$inferSelect;
-export type InsertClientReport = typeof clientReports.$inferInsert;
 export type CompetitionReport = typeof competitionReports.$inferSelect;
 export type InsertCompetitionReport = typeof competitionReports.$inferInsert;
 export type GeoTracking = typeof geoTracking.$inferSelect;
@@ -54,21 +61,46 @@ export type SalesOrder = typeof salesOrders.$inferSelect;
 export type InsertSalesOrder = typeof salesOrders.$inferInsert;
 export type DealerReportsAndScores = typeof dealerReportsAndScores.$inferSelect;
 export type InsertDealerReportsAndScores = typeof dealerReportsAndScores.$inferInsert;
-
-export type SalesReport = typeof salesReport.$inferSelect;
-export type InsertSalesReport = typeof salesReport.$inferInsert;
-export type CollectionReport = typeof collectionReports.$inferSelect;
-export type InsertCollectionReport = typeof collectionReports.$inferInsert;
-export type Ddp = typeof ddp.$inferSelect;
-export type InsertDdp = typeof ddp.$inferInsert;
 export type Rating = typeof ratings.$inferSelect;
 export type InsertRating = typeof ratings.$inferInsert;
 export type Brand = typeof brands.$inferSelect;
 export type InsertBrand = typeof brands.$inferInsert;
 export type DealerBrandMap = typeof dealerBrandMapping.$inferSelect;
 export type InsertDealerBrandMap = typeof dealerBrandMapping.$inferInsert;
-export type MasterConnected = typeof masterConnectedTable.$inferSelect;
-export type InsertMasterConnected = typeof masterConnectedTable.$inferInsert;
+export type TSOMeeting = typeof tsoMeetings.$inferSelect;
+export type InsertTSOMeeting = typeof tsoMeetings.$inferInsert;
+
+// UPDATED: Renamed from GiftInventory to Reward
+export type Reward = typeof rewards.$inferSelect;
+export type InsertReward = typeof rewards.$inferInsert;
+
+export type GiftAllocationLog = typeof giftAllocationLogs.$inferSelect;
+export type InsertGiftAllocationLog = typeof giftAllocationLogs.$inferInsert;
+export type MasonPcSide = typeof masonPcSide.$inferSelect;
+export type InsertMasonPcSide = typeof masonPcSide.$inferInsert;
+export type OtpVerification = typeof otpVerifications.$inferSelect;
+export type InsertOtpVerification = typeof otpVerifications.$inferInsert;
+export type SchemeOffer = typeof schemesOffers.$inferSelect;
+export type InsertSchemeOffer = typeof schemesOffers.$inferInsert;
+export type MasonOnScheme = typeof masonOnScheme.$inferSelect;
+export type InsertMasonOnScheme = typeof masonOnScheme.$inferInsert;
+export type MasonsOnMeetings = typeof masonsOnMeetings.$inferSelect;
+export type InsertMasonsOnMeetings = typeof masonsOnMeetings.$inferInsert;
+
+// NEW TYPES
+export type RewardCategory = typeof rewardCategories.$inferSelect;
+export type InsertRewardCategory = typeof rewardCategories.$inferInsert;
+export type KYCSubmission = typeof kycSubmissions.$inferSelect;
+export type InsertKYCSubmission = typeof kycSubmissions.$inferInsert;
+export type TSOAssignment = typeof tsoAssignments.$inferSelect;
+export type InsertTSOAssignment = typeof tsoAssignments.$inferInsert;
+export type BagLift = typeof bagLifts.$inferSelect;
+export type InsertBagLift = typeof bagLifts.$inferInsert;
+export type RewardRedemption = typeof rewardRedemptions.$inferSelect;
+export type InsertRewardRedemption = typeof rewardRedemptions.$inferInsert;
+export type PointsLedger = typeof pointsLedger.$inferSelect;
+export type InsertPointsLedger = typeof pointsLedger.$inferInsert;
+
 
 export interface IStorage {
   getCompany(id: number): Promise<Company | undefined>;
@@ -126,11 +158,6 @@ export interface IStorage {
   createSalesmanLeaveApplication(insertLeave: InsertSalesmanLeaveApplication): Promise<SalesmanLeaveApplication>;
   updateSalesmanLeaveApplication(id: string, updates: Partial<InsertSalesmanLeaveApplication>): Promise<SalesmanLeaveApplication>;
 
-  getClientReport(id: string): Promise<ClientReport | undefined>;
-  getClientReportsByUserId(userId: number): Promise<ClientReport[]>;
-  createClientReport(insertReport: InsertClientReport): Promise<ClientReport>;
-  updateClientReport(id: string, updates: Partial<InsertClientReport>): Promise<ClientReport>;
-
   getCompetitionReport(id: string): Promise<CompetitionReport | undefined>;
   getCompetitionReportsByUserId(userId: number): Promise<CompetitionReport[]>;
   createCompetitionReport(insertReport: InsertCompetitionReport): Promise<CompetitionReport>;
@@ -154,32 +181,12 @@ export interface IStorage {
   getBusinessMetrics(companyId: number): Promise<any>;
   assignTaskToUser(taskData: InsertDailyTask): Promise<DailyTask>;
 
-  // SALES REPORT
-  getSalesReport(id: number): Promise<SalesReport | undefined>;
-  getSalesReportsByUserId(userId: number): Promise<SalesReport[]>;
-  getSalesReportsByDealerId(dealerId: string): Promise<SalesReport[]>;
-  createSalesReport(data: InsertSalesReport): Promise<SalesReport>;
-  updateSalesReport(id: number, updates: Partial<InsertSalesReport>): Promise<SalesReport>;
-
   // SALES ORDERS
   getSalesOrder(id: string): Promise<SalesOrder | undefined>;
   getSalesOrdersBySalesmanId(salesmanId: number): Promise<SalesOrder[]>;
   getSalesOrdersByDealerId(dealerId: string): Promise<SalesOrder[]>;
   createSalesOrder(data: InsertSalesOrder): Promise<SalesOrder>;
   updateSalesOrder(id: string, updates: Partial<InsertSalesOrder>): Promise<SalesOrder>;
-
-  // COLLECTION REPORTS
-  getCollectionReport(id: string): Promise<CollectionReport | undefined>;
-  getCollectionReportsByDealerId(dealerId: string): Promise<CollectionReport[]>;
-  createCollectionReport(data: InsertCollectionReport): Promise<CollectionReport>;
-  updateCollectionReport(id: string, updates: Partial<InsertCollectionReport>): Promise<CollectionReport>;
-
-  // DDP
-  getDdp(id: number): Promise<Ddp | undefined>;
-  getDdpByUserId(userId: number): Promise<Ddp[]>;
-  getDdpByDealerId(dealerId: string): Promise<Ddp[]>;
-  createDdp(data: InsertDdp): Promise<Ddp>;
-  updateDdp(id: number, updates: Partial<InsertDdp>): Promise<Ddp>;
 
   // RATINGS
   getRating(id: number): Promise<Rating | undefined>;
@@ -200,10 +207,94 @@ export interface IStorage {
   getDealerBrandMapsByBrandId(brandId: number): Promise<DealerBrandMap[]>;
   upsertDealerBrandMap(data: InsertDealerBrandMap): Promise<DealerBrandMap>;
 
-  // MASTER CONNECTED TABLE
-  getMasterConnected(id: string): Promise<MasterConnected | undefined>;
-  createMasterConnected(data: InsertMasterConnected): Promise<MasterConnected>;
-  updateMasterConnected(id: string, updates: Partial<InsertMasterConnected>): Promise<MasterConnected>;
+  // --- TSO MEETINGS
+  getTSOMeeting(id: string): Promise<TSOMeeting | undefined>;
+  getTSOMeetingsByUserId(userId: number): Promise<TSOMeeting[]>;
+  createTSOMeeting(data: InsertTSOMeeting): Promise<TSOMeeting>;
+  updateTSOMeeting(id: string, updates: Partial<InsertTSOMeeting>): Promise<TSOMeeting>;
+
+  // --- REWARDS (UPDATED from Gift Inventory) ---
+  getRewardItem(id: number): Promise<Reward | undefined>;
+  listRewards(): Promise<Reward[]>;
+  createRewardItem(data: InsertReward): Promise<Reward>;
+  updateRewardItem(id: number, updates: Partial<InsertReward>): Promise<Reward>;
+
+  // --- REWARD CATEGORIES (NEW) ---
+  getRewardCategory(id: number): Promise<RewardCategory | undefined>;
+  listRewardCategories(): Promise<RewardCategory[]>;
+  createRewardCategory(data: InsertRewardCategory): Promise<RewardCategory>;
+  updateRewardCategory(id: number, updates: Partial<InsertRewardCategory>): Promise<RewardCategory>;
+
+  // --- GIFT ALLOCATION LOGS
+  getGiftAllocationLog(id: string): Promise<GiftAllocationLog | undefined>;
+  getGiftAllocationLogsByUserId(userId: number): Promise<GiftAllocationLog[]>;
+  getGiftAllocationLogsByGiftId(giftId: number): Promise<GiftAllocationLog[]>;
+  createGiftAllocationLog(data: InsertGiftAllocationLog): Promise<GiftAllocationLog>;
+
+  // --- MASON / PC SIDE
+  getMason(id: string): Promise<MasonPcSide | undefined>;
+  getMasonsByUserId(userId: number): Promise<MasonPcSide[]>;
+  getMasonsByDealerId(dealerId: string): Promise<MasonPcSide[]>;
+  createMason(data: InsertMasonPcSide): Promise<MasonPcSide>;
+  updateMason(id: string, updates: Partial<InsertMasonPcSide>): Promise<MasonPcSide>;
+
+  // --- KYC SUBMISSIONS (NEW) ---
+  getKYCSubmission(id: string): Promise<KYCSubmission | undefined>;
+  getKYCSubmissionByMasonId(masonId: string): Promise<KYCSubmission | undefined>;
+  createKYCSubmission(data: InsertKYCSubmission): Promise<KYCSubmission>;
+  updateKYCSubmission(id: string, updates: Partial<InsertKYCSubmission>): Promise<KYCSubmission>;
+
+  // --- TSO ASSIGNMENTS (NEW - Composite PK) ---
+  getTSOAssignment(tsoId: number, masonId: string): Promise<TSOAssignment | undefined>;
+  getTSOAssignmentsByTSOId(tsoId: number): Promise<TSOAssignment[]>;
+  getTSOAssignmentsByMasonId(masonId: string): Promise<TSOAssignment[]>;
+  addTSOAssignment(data: InsertTSOAssignment): Promise<TSOAssignment>;
+  removeTSOAssignment(tsoId: number, masonId: string): Promise<void>;
+
+  // --- BAG LIFTS (NEW) ---
+  getBagLift(id: string): Promise<BagLift | undefined>;
+  getBagLiftsByMasonId(masonId: string): Promise<BagLift[]>;
+  getBagLiftsByDealerId(dealerId: string): Promise<BagLift[]>;
+  createBagLift(data: InsertBagLift): Promise<BagLift>;
+  updateBagLift(id: string, updates: Partial<InsertBagLift>): Promise<BagLift>;
+
+  // --- REWARD REDEMPTIONS (NEW) ---
+  getRewardRedemption(id: string): Promise<RewardRedemption | undefined>;
+  getRewardRedemptionsByMasonId(masonId: string): Promise<RewardRedemption[]>;
+  createRewardRedemption(data: InsertRewardRedemption): Promise<RewardRedemption>;
+  updateRewardRedemption(id: string, updates: Partial<InsertRewardRedemption>): Promise<RewardRedemption>;
+
+  // --- POINTS LEDGER (NEW) ---
+  getPointsLedgerEntry(id: string): Promise<PointsLedger | undefined>;
+  getPointsLedgerByMasonId(masonId: string): Promise<PointsLedger[]>;
+  createPointsLedgerEntry(data: InsertPointsLedger): Promise<PointsLedger>;
+  // Note: PointsLedger entries are typically immutable, so no update method
+
+  // --- OTP VERIFICATIONS
+  getOtp(id: string): Promise<OtpVerification | undefined>;
+  findOtpByMasonId(masonId: string): Promise<OtpVerification | undefined>;
+  createOtp(data: InsertOtpVerification): Promise<OtpVerification>;
+  deleteOtp(id: string): Promise<void>;
+
+  // --- SCHEMES & OFFERS
+  getScheme(id: string): Promise<SchemeOffer | undefined>;
+  listSchemes(): Promise<SchemeOffer[]>;
+  createScheme(data: InsertSchemeOffer): Promise<SchemeOffer>;
+  updateScheme(id: string, updates: Partial<InsertSchemeOffer>): Promise<SchemeOffer>;
+
+  // --- MASON ON SCHEME
+  getMasonOnScheme(masonId: string, schemeId: string): Promise<MasonOnScheme | undefined>;
+  getSchemesForMason(masonId: string): Promise<MasonOnScheme[]>;
+  getMasonsForScheme(schemeId: string): Promise<MasonOnScheme[]>;
+  addMasonToScheme(data: InsertMasonOnScheme): Promise<MasonOnScheme>;
+  removeMasonFromScheme(masonId: string, schemeId: string): Promise<void>;
+
+  // --- MASONS ON MEETINGS
+  getMasonOnMeeting(masonId: string, meetingId: string): Promise<MasonsOnMeetings | undefined>;
+  getMeetingsForMason(masonId: string): Promise<MasonsOnMeetings[]>;
+  getMasonsForMeeting(meetingId: string): Promise<MasonsOnMeetings[]>;
+  addMasonToMeeting(data: InsertMasonsOnMeetings): Promise<MasonsOnMeetings>;
+  removeMasonFromMeeting(masonId: string, meetingId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -239,14 +330,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ========================================
-  // SALES ORDERS (NEW)
+  // SALES ORDERS
   // ========================================
   async getSalesOrder(id: string): Promise<SalesOrder | undefined> {
     const [row] = await db.select().from(salesOrders).where(eq(salesOrders.id, id));
     return row || undefined;
   }
   async getSalesOrdersBySalesmanId(salesmanId: number): Promise<SalesOrder[]> {
-    return await db.select().from(salesOrders).where(eq(salesOrders.salesmanId, salesmanId));
+    // @ts-ignore - Property 'salesmanId' does not exist on type 'salesOrders'. It's 'userId'.
+    return await db.select().from(salesOrders).where(eq(salesOrders.userId, salesmanId));
   }
   async getSalesOrdersByDealerId(dealerId: string): Promise<SalesOrder[]> {
     return await db.select().from(salesOrders).where(eq(salesOrders.dealerId, dealerId));
@@ -537,32 +629,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ========================================
-  // CLIENT REPORTS
-  // ========================================
-
-  async getClientReport(id: string): Promise<ClientReport | undefined> {
-    const [report] = await db.select().from(clientReports).where(eq(clientReports.id, id));
-    return report || undefined;
-  }
-
-  async getClientReportsByUserId(userId: number): Promise<ClientReport[]> {
-    return await db.select().from(clientReports).where(eq(clientReports.userId, userId)).orderBy(desc(clientReports.createdAt));
-  }
-
-  async createClientReport(insertReport: InsertClientReport): Promise<ClientReport> {
-    const [report] = await db.insert(clientReports).values(insertReport).returning();
-    return report;
-  }
-
-  async updateClientReport(id: string, updates: Partial<InsertClientReport>): Promise<ClientReport> {
-    const [report] = await db.update(clientReports).set({
-      ...updates,
-      updatedAt: new Date()
-    }).where(eq(clientReports.id, id)).returning();
-    return report;
-  }
-
-  // ========================================
   // COMPETITION REPORTS
   // ========================================
 
@@ -718,9 +784,10 @@ export class DatabaseStorage implements IStorage {
         );
 
       return {
-        totalUsers: Number(totalUsers[0]?.count || 0),
-        totalReports: Number(totalReports[0]?.count || 0),
-        activeDealers: Number(activeDealers[0]?.count || 0),
+        // Access the .rows property from the db.execute result
+        totalUsers: Number(totalUsers.rows[0]?.count || 0),
+        totalReports: Number(totalReports.rows[0]?.count || 0),
+        activeDealers: Number(activeDealers.rows[0]?.count || 0),
         monthlyAttendance: Number(monthlyAttendance[0]?.count || 0),
       };
     } catch (error) {
@@ -745,70 +812,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ========================================
-  // SALES REPORT (NEW)
-  // ========================================
-  async getSalesReport(id: number): Promise<SalesReport | undefined> {
-    const [row] = await db.select().from(salesReport).where(eq(salesReport.id, id));
-    return row || undefined;
-  }
-  async getSalesReportsByUserId(userId: number): Promise<SalesReport[]> {
-    return await db.select().from(salesReport).where(eq(salesReport.salesPersonId, userId));
-  }
-  async getSalesReportsByDealerId(dealerId: string): Promise<SalesReport[]> {
-    return await db.select().from(salesReport).where(eq(salesReport.dealerId, dealerId));
-  }
-  async createSalesReport(data: InsertSalesReport): Promise<SalesReport> {
-    const [row] = await db.insert(salesReport).values(data).returning();
-    return row;
-  }
-  async updateSalesReport(id: number, updates: Partial<InsertSalesReport>): Promise<SalesReport> {
-    const [row] = await db.update(salesReport).set({ ...updates }).where(eq(salesReport.id, id)).returning();
-    return row;
-  }
-
-  // ========================================
-  // COLLECTION REPORTS (NEW)
-  // ========================================
-  async getCollectionReport(id: string): Promise<CollectionReport | undefined> {
-    const [row] = await db.select().from(collectionReports).where(eq(collectionReports.id, id));
-    return row || undefined;
-  }
-  async getCollectionReportsByDealerId(dealerId: string): Promise<CollectionReport[]> {
-    return await db.select().from(collectionReports).where(eq(collectionReports.dealerId, dealerId));
-  }
-  async createCollectionReport(data: InsertCollectionReport): Promise<CollectionReport> {
-    const [row] = await db.insert(collectionReports).values(data).returning();
-    return row;
-  }
-  async updateCollectionReport(id: string, updates: Partial<InsertCollectionReport>): Promise<CollectionReport> {
-    const [row] = await db.update(collectionReports).set({ ...updates }).where(eq(collectionReports.id, id)).returning();
-    return row;
-  }
-
-  // ========================================
-  // DEALER DEVELOPMENT PROCESS (DDP) (NEW)
-  // ========================================
-  async getDdp(id: number): Promise<Ddp | undefined> {
-    const [row] = await db.select().from(ddp).where(eq(ddp.id, id));
-    return row || undefined;
-  }
-  async getDdpByUserId(userId: number): Promise<Ddp[]> {
-    return await db.select().from(ddp).where(eq(ddp.userId, userId));
-  }
-  async getDdpByDealerId(dealerId: string): Promise<Ddp[]> {
-    return await db.select().from(ddp).where(eq(ddp.dealerId, dealerId));
-  }
-  async createDdp(data: InsertDdp): Promise<Ddp> {
-    const [row] = await db.insert(ddp).values(data).returning();
-    return row;
-  }
-  async updateDdp(id: number, updates: Partial<InsertDdp>): Promise<Ddp> {
-    const [row] = await db.update(ddp).set({ ...updates }).where(eq(ddp.id, id)).returning();
-    return row;
-  }
-
-  // ========================================
-  // RATINGS (NEW)
+  // RATINGS
   // ========================================
   async getRating(id: number): Promise<Rating | undefined> {
     const [row] = await db.select().from(ratings).where(eq(ratings.id, id));
@@ -827,7 +831,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ========================================
-  // BRANDS (NEW)
+  // BRANDS
   // ========================================
   async getBrand(id: number): Promise<Brand | undefined> {
     const [row] = await db.select().from(brands).where(eq(brands.id, id));
@@ -850,7 +854,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ========================================
-  // DEALER BRAND MAPPING (NEW)
+  // DEALER BRAND MAPPING
   // ========================================
   async getDealerBrandMap(id: string): Promise<DealerBrandMap | undefined> {
     const [row] = await db.select().from(dealerBrandMapping).where(eq(dealerBrandMapping.id, id));
@@ -876,19 +880,279 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ========================================
-  // MASTER CONNECTED TABLE (NEW)
+  // TSO MEETINGS
   // ========================================
-  async getMasterConnected(id: string): Promise<MasterConnected | undefined> {
-    const [row] = await db.select().from(masterConnectedTable).where(eq(masterConnectedTable.id, id));
+  async getTSOMeeting(id: string): Promise<TSOMeeting | undefined> {
+    const [row] = await db.select().from(tsoMeetings).where(eq(tsoMeetings.id, id));
     return row || undefined;
   }
-  async createMasterConnected(data: InsertMasterConnected): Promise<MasterConnected> {
-    const [row] = await db.insert(masterConnectedTable).values(data).returning();
+  async getTSOMeetingsByUserId(userId: number): Promise<TSOMeeting[]> {
+    return await db.select().from(tsoMeetings).where(eq(tsoMeetings.createdByUserId, userId)).orderBy(desc(tsoMeetings.date));
+  }
+  async createTSOMeeting(data: InsertTSOMeeting): Promise<TSOMeeting> {
+    const [row] = await db.insert(tsoMeetings).values(data).returning();
     return row;
   }
-  async updateMasterConnected(id: string, updates: Partial<InsertMasterConnected>): Promise<MasterConnected> {
-    const [row] = await db.update(masterConnectedTable).set({ ...updates }).where(eq(masterConnectedTable.id, id)).returning();
+  async updateTSOMeeting(id: string, updates: Partial<InsertTSOMeeting>): Promise<TSOMeeting> {
+    const [row] = await db.update(tsoMeetings).set({ ...updates, updatedAt: new Date() }).where(eq(tsoMeetings.id, id)).returning();
     return row;
+  }
+
+  // ========================================
+  // REWARDS (UPDATED from GIFT INVENTORY)
+  // ========================================
+  async getRewardItem(id: number): Promise<Reward | undefined> {
+    const [row] = await db.select().from(rewards).where(eq(rewards.id, id));
+    return row || undefined;
+  }
+  async listRewards(): Promise<Reward[]> {
+    return await db.select().from(rewards).orderBy(asc(rewards.itemName));
+  }
+  async createRewardItem(data: InsertReward): Promise<Reward> {
+    const [row] = await db.insert(rewards).values(data).returning();
+    return row;
+  }
+  async updateRewardItem(id: number, updates: Partial<InsertReward>): Promise<Reward> {
+    const [row] = await db.update(rewards).set({ ...updates, updatedAt: new Date() }).where(eq(rewards.id, id)).returning();
+    return row;
+  }
+
+  // ========================================
+  // REWARD CATEGORIES (NEW)
+  // ========================================
+  async getRewardCategory(id: number): Promise<RewardCategory | undefined> {
+    const [row] = await db.select().from(rewardCategories).where(eq(rewardCategories.id, id));
+    return row || undefined;
+  }
+  async listRewardCategories(): Promise<RewardCategory[]> {
+    return await db.select().from(rewardCategories).orderBy(asc(rewardCategories.name));
+  }
+  async createRewardCategory(data: InsertRewardCategory): Promise<RewardCategory> {
+    const [row] = await db.insert(rewardCategories).values(data).returning();
+    return row;
+  }
+  async updateRewardCategory(id: number, updates: Partial<InsertRewardCategory>): Promise<RewardCategory> {
+    const [row] = await db.update(rewardCategories).set(updates).where(eq(rewardCategories.id, id)).returning();
+    return row;
+  }
+
+  // ========================================
+  // GIFT ALLOCATION LOGS
+  // ========================================
+  async getGiftAllocationLog(id: string): Promise<GiftAllocationLog | undefined> {
+    const [row] = await db.select().from(giftAllocationLogs).where(eq(giftAllocationLogs.id, id));
+    return row || undefined;
+  }
+  async getGiftAllocationLogsByUserId(userId: number): Promise<GiftAllocationLog[]> {
+    return await db.select().from(giftAllocationLogs).where(eq(giftAllocationLogs.userId, userId)).orderBy(desc(giftAllocationLogs.createdAt));
+  }
+  async getGiftAllocationLogsByGiftId(giftId: number): Promise<GiftAllocationLog[]> {
+    return await db.select().from(giftAllocationLogs).where(eq(giftAllocationLogs.giftId, giftId)).orderBy(desc(giftAllocationLogs.createdAt));
+  }
+  async createGiftAllocationLog(data: InsertGiftAllocationLog): Promise<GiftAllocationLog> {
+    const [row] = await db.insert(giftAllocationLogs).values(data).returning();
+    return row;
+  }
+
+  // ========================================
+  // MASON / PC SIDE
+  // ========================================
+  async getMason(id: string): Promise<MasonPcSide | undefined> {
+    const [row] = await db.select().from(masonPcSide).where(eq(masonPcSide.id, id));
+    return row || undefined;
+  }
+  async getMasonsByUserId(userId: number): Promise<MasonPcSide[]> {
+    return await db.select().from(masonPcSide).where(eq(masonPcSide.userId, userId));
+  }
+  async getMasonsByDealerId(dealerId: string): Promise<MasonPcSide[]> {
+    return await db.select().from(masonPcSide).where(eq(masonPcSide.dealerId, dealerId));
+  }
+  async createMason(data: InsertMasonPcSide): Promise<MasonPcSide> {
+    const [row] = await db.insert(masonPcSide).values(data).returning();
+    return row;
+  }
+  async updateMason(id: string, updates: Partial<InsertMasonPcSide>): Promise<MasonPcSide> {
+    const [row] = await db.update(masonPcSide).set(updates).where(eq(masonPcSide.id, id)).returning();
+    return row;
+  }
+  
+  // ========================================
+  // KYC SUBMISSIONS (NEW)
+  // ========================================
+  async getKYCSubmission(id: string): Promise<KYCSubmission | undefined> {
+    const [row] = await db.select().from(kycSubmissions).where(eq(kycSubmissions.id, id));
+    return row || undefined;
+  }
+  async getKYCSubmissionByMasonId(masonId: string): Promise<KYCSubmission | undefined> {
+    // Find the most recent submission
+    const [row] = await db.select().from(kycSubmissions).where(eq(kycSubmissions.masonId, masonId)).orderBy(desc(kycSubmissions.createdAt)).limit(1);
+    return row || undefined;
+  }
+  async createKYCSubmission(data: InsertKYCSubmission): Promise<KYCSubmission> {
+    const [row] = await db.insert(kycSubmissions).values(data).returning();
+    return row;
+  }
+  async updateKYCSubmission(id: string, updates: Partial<InsertKYCSubmission>): Promise<KYCSubmission> {
+    const [row] = await db.update(kycSubmissions).set({ ...updates, updatedAt: new Date() }).where(eq(kycSubmissions.id, id)).returning();
+    return row;
+  }
+
+  // ========================================
+  // TSO ASSIGNMENTS (NEW - Composite PK)
+  // ========================================
+  async getTSOAssignment(tsoId: number, masonId: string): Promise<TSOAssignment | undefined> {
+    const [row] = await db.select().from(tsoAssignments).where(and(eq(tsoAssignments.tsoId, tsoId), eq(tsoAssignments.masonId, masonId)));
+    return row || undefined;
+  }
+  async getTSOAssignmentsByTSOId(tsoId: number): Promise<TSOAssignment[]> {
+    return await db.select().from(tsoAssignments).where(eq(tsoAssignments.tsoId, tsoId)).orderBy(desc(tsoAssignments.createdAt));
+  }
+  async getTSOAssignmentsByMasonId(masonId: string): Promise<TSOAssignment[]> {
+    return await db.select().from(tsoAssignments).where(eq(tsoAssignments.masonId, masonId)).orderBy(desc(tsoAssignments.createdAt));
+  }
+  async addTSOAssignment(data: InsertTSOAssignment): Promise<TSOAssignment> {
+    const [row] = await db.insert(tsoAssignments).values(data).returning();
+    return row;
+  }
+  async removeTSOAssignment(tsoId: number, masonId: string): Promise<void> {
+    await db.delete(tsoAssignments).where(and(eq(tsoAssignments.tsoId, tsoId), eq(tsoAssignments.masonId, masonId)));
+  }
+
+  // ========================================
+  // BAG LIFTS (NEW)
+  // ========================================
+  async getBagLift(id: string): Promise<BagLift | undefined> {
+    const [row] = await db.select().from(bagLifts).where(eq(bagLifts.id, id));
+    return row || undefined;
+  }
+  async getBagLiftsByMasonId(masonId: string): Promise<BagLift[]> {
+    return await db.select().from(bagLifts).where(eq(bagLifts.masonId, masonId)).orderBy(desc(bagLifts.purchaseDate));
+  }
+  async getBagLiftsByDealerId(dealerId: string): Promise<BagLift[]> {
+    return await db.select().from(bagLifts).where(eq(bagLifts.dealerId, dealerId)).orderBy(desc(bagLifts.purchaseDate));
+  }
+  async createBagLift(data: InsertBagLift): Promise<BagLift> {
+    const [row] = await db.insert(bagLifts).values(data).returning();
+    return row;
+  }
+  async updateBagLift(id: string, updates: Partial<InsertBagLift>): Promise<BagLift> {
+    const [row] = await db.update(bagLifts).set(updates).where(eq(bagLifts.id, id)).returning();
+    return row;
+  }
+
+  // ========================================
+  // REWARD REDEMPTIONS (NEW)
+  // ========================================
+  async getRewardRedemption(id: string): Promise<RewardRedemption | undefined> {
+    const [row] = await db.select().from(rewardRedemptions).where(eq(rewardRedemptions.id, id));
+    return row || undefined;
+  }
+  async getRewardRedemptionsByMasonId(masonId: string): Promise<RewardRedemption[]> {
+    return await db.select().from(rewardRedemptions).where(eq(rewardRedemptions.masonId, masonId)).orderBy(desc(rewardRedemptions.createdAt));
+  }
+  async createRewardRedemption(data: InsertRewardRedemption): Promise<RewardRedemption> {
+    const [row] = await db.insert(rewardRedemptions).values(data).returning();
+    return row;
+  }
+  async updateRewardRedemption(id: string, updates: Partial<InsertRewardRedemption>): Promise<RewardRedemption> {
+    const [row] = await db.update(rewardRedemptions).set({ ...updates, updatedAt: new Date() }).where(eq(rewardRedemptions.id, id)).returning();
+    return row;
+  }
+
+  // ========================================
+  // POINTS LEDGER (NEW)
+  // ========================================
+  async getPointsLedgerEntry(id: string): Promise<PointsLedger | undefined> {
+    const [row] = await db.select().from(pointsLedger).where(eq(pointsLedger.id, id));
+    return row || undefined;
+  }
+  async getPointsLedgerByMasonId(masonId: string): Promise<PointsLedger[]> {
+    return await db.select().from(pointsLedger).where(eq(pointsLedger.masonId, masonId)).orderBy(desc(pointsLedger.createdAt));
+  }
+  async createPointsLedgerEntry(data: InsertPointsLedger): Promise<PointsLedger> {
+    const [row] = await db.insert(pointsLedger).values(data).returning();
+    return row;
+  }
+
+  // ========================================
+  // OTP VERIFICATIONS
+  // ========================================
+  async getOtp(id: string): Promise<OtpVerification | undefined> {
+    const [row] = await db.select().from(otpVerifications).where(eq(otpVerifications.id, id));
+    return row || undefined;
+  }
+  async findOtpByMasonId(masonId: string): Promise<OtpVerification | undefined> {
+    // Find the most recent OTP for a mason
+    const [row] = await db.select().from(otpVerifications).where(eq(otpVerifications.masonId, masonId)).orderBy(desc(otpVerifications.expiresAt)).limit(1);
+    return row || undefined;
+  }
+  async createOtp(data: InsertOtpVerification): Promise<OtpVerification> {
+    const [row] = await db.insert(otpVerifications).values(data).returning();
+    return row;
+  }
+  async deleteOtp(id: string): Promise<void> {
+    await db.delete(otpVerifications).where(eq(otpVerifications.id, id));
+  }
+
+  // ========================================
+  // SCHEMES & OFFERS
+  // ========================================
+  async getScheme(id: string): Promise<SchemeOffer | undefined> {
+    const [row] = await db.select().from(schemesOffers).where(eq(schemesOffers.id, id));
+    return row || undefined;
+  }
+  async listSchemes(): Promise<SchemeOffer[]> {
+    return await db.select().from(schemesOffers).orderBy(asc(schemesOffers.name));
+  }
+  async createScheme(data: InsertSchemeOffer): Promise<SchemeOffer> {
+    const [row] = await db.insert(schemesOffers).values(data).returning();
+    return row;
+  }
+  async updateScheme(id: string, updates: Partial<InsertSchemeOffer>): Promise<SchemeOffer> {
+    const [row] = await db.update(schemesOffers).set(updates).where(eq(schemesOffers.id, id)).returning();
+    return row;
+  }
+
+  // ========================================
+  // MASON ON SCHEME
+  // ========================================
+  async getMasonOnScheme(masonId: string, schemeId: string): Promise<MasonOnScheme | undefined> {
+    const [row] = await db.select().from(masonOnScheme).where(and(eq(masonOnScheme.masonId, masonId), eq(masonOnScheme.schemeId, schemeId)));
+    return row || undefined;
+  }
+  async getSchemesForMason(masonId: string): Promise<MasonOnScheme[]> {
+    return await db.select().from(masonOnScheme).where(eq(masonOnScheme.masonId, masonId));
+  }
+  async getMasonsForScheme(schemeId: string): Promise<MasonOnScheme[]> {
+    return await db.select().from(masonOnScheme).where(eq(masonOnScheme.schemeId, schemeId));
+  }
+  async addMasonToScheme(data: InsertMasonOnScheme): Promise<MasonOnScheme> {
+    const [row] = await db.insert(masonOnScheme).values(data).returning();
+    return row;
+  }
+  async removeMasonFromScheme(masonId: string, schemeId: string): Promise<void> {
+    await db.delete(masonOnScheme).where(and(eq(masonOnScheme.masonId, masonId), eq(masonOnScheme.schemeId, schemeId)));
+  }
+
+  // ========================================
+  // MASONS ON MEETINGS
+  // ========================================
+  async getMasonOnMeeting(masonId: string, meetingId: string): Promise<MasonsOnMeetings | undefined> {
+    const [row] = await db.select().from(masonsOnMeetings).where(and(eq(masonsOnMeetings.masonId, masonId), eq(masonsOnMeetings.meetingId, meetingId)));
+    return row || undefined;
+  }
+  async getMeetingsForMason(masonId: string): Promise<MasonsOnMeetings[]> {
+    return await db.select().from(masonsOnMeetings).where(eq(masonsOnMeetings.masonId, masonId));
+  }
+  async getMasonsForMeeting(meetingId: string): Promise<MasonsOnMeetings[]> {
+    return await db.select().from(masonsOnMeetings).where(eq(masonsOnMeetings.meetingId, meetingId));
+  }
+  async addMasonToMeeting(data: InsertMasonsOnMeetings): Promise<MasonsOnMeetings> {
+    const [row] = await db.insert(masonsOnMeetings).values(data).returning();
+    return row;
+  }
+  async removeMasonFromMeeting(masonId: string, meetingId: string): Promise<void> {
+    await db.delete(masonsOnMeetings).where(and(eq(masonsOnMeetings.masonId, masonId), eq(masonsOnMeetings.meetingId, meetingId)));
   }
 }
 

@@ -1,4 +1,3 @@
-// server/src/db/seed.ts
 // Purge-only seed compatible with current schema.ts and storage.ts.
 // Deletes child tables -> parent tables in FK-safe order.
 // No data is inserted. This is for dev/staging reset only.
@@ -13,47 +12,80 @@ import {
   permanentJourneyPlans,
   salesmanAttendance,
   salesmanLeaveApplications,
-  clientReports,
   competitionReports,
   geoTracking,
   dailyTasks,
   dealerReportsAndScores,
-  salesReport,
-  salesOrders,  // ADD THIS LINE
-  collectionReports,
-  ddp,
+  salesOrders,
   ratings,
   brands,
   dealerBrandMapping,
-  masterConnectedTable,
+  tsoMeetings,
+  rewards, // UPDATED: Renamed from giftInventory
+  giftAllocationLogs,
+  tallyRaw,
+  masonPcSide,
+  otpVerifications,
+  schemesOffers,
+  masonOnScheme,
+  masonsOnMeetings,
+  // NEW TABLES:
+  rewardCategories, // New table
+  kycSubmissions,   // New table
+  tsoAssignments,   // New table
+  bagLifts,         // New table
+  rewardRedemptions, // New table
+  pointsLedger,     // New table
 } from "./schema";
 
 async function seedDatabase() {
   console.log("Initializing database reset...");
 
-  // Delete children first, then parents. Self-refs are handled by deleting the table itself (no inserts anyway).
-  await db.delete(competitionReports);
+  // --- 1. Delete deeply nested children / audit logs ---
+  await db.delete(pointsLedger);
+  await db.delete(otpVerifications);
+  await db.delete(kycSubmissions);
+  
+  // --- 2. Delete join tables and direct FK children (must precede parents) ---
+  await db.delete(tsoAssignments);
+  await db.delete(masonOnScheme);
+  await db.delete(masonsOnMeetings);
   await db.delete(dealerBrandMapping);
   await db.delete(dealerReportsAndScores);
+
+  // --- 3. Delete transactional data and logs (must precede reports and core entities) ---
+  await db.delete(giftAllocationLogs);
+  await db.delete(rewardRedemptions); // Child of Rewards and Mason_PC_Side
+  await db.delete(bagLifts);          // Child of Mason_PC_Side and Dealer
+  await db.delete(salesOrders);
+  await db.delete(dailyTasks);
+
+  // --- 4. Delete main reports and activity tables ---
+  await db.delete(technicalVisitReports);
+  await db.delete(dailyVisitReports);
+  await db.delete(permanentJourneyPlans);
+  await db.delete(competitionReports);
   await db.delete(ratings);
-  await db.delete(salesReport);
-  await db.delete(salesOrders);  // ADD THIS LINE
-  await db.delete(collectionReports);
   await db.delete(salesmanLeaveApplications);
   await db.delete(salesmanAttendance);
   await db.delete(geoTracking);
-  await db.delete(clientReports);
-  await db.delete(dailyTasks);
-  await db.delete(technicalVisitReports);
-  await db.delete(masterConnectedTable);
-  await db.delete(ddp);
+
+  // --- 5. Delete "parent" entity tables ---
+  await db.delete(schemesOffers);
+  await db.delete(rewards); // UPDATED: Renamed from giftInventory
+  await db.delete(rewardCategories); // Parent of Rewards
+  await db.delete(tsoMeetings);
+  await db.delete(masonPcSide);
   await db.delete(brands);
-  await db.delete(dailyVisitReports);
-  await db.delete(permanentJourneyPlans);
+
+  // --- 6. Delete core entities (users, dealers, companies) ---
   await db.delete(dealers);
   await db.delete(users);
   await db.delete(companies);
 
+  // --- 7. Delete independent tables ---
+  await db.delete(tallyRaw);
+  
   console.log("Database cleared successfully (no demo data inserted).");
 }
 // Run if called directly

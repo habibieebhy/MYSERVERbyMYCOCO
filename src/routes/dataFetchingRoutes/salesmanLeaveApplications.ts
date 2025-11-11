@@ -4,8 +4,8 @@
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
 import { salesmanLeaveApplications, insertSalesmanLeaveApplicationSchema } from '../../db/schema';
-import { eq, and, desc, gte, lte } from 'drizzle-orm';
-import { z } from 'zod';
+import { eq, and, desc, gte, lte, SQL } from 'drizzle-orm';
+import { any, z } from 'zod';
 
 function createAutoCRUD(app: Express, config: {
   endpoint: string,
@@ -68,13 +68,13 @@ function createAutoCRUD(app: Express, config: {
         }
       });
 
-      let query = db.select().from(table);
+      let query:any = db.select().from(table);
       
       if (whereCondition) {
         query = query.where(whereCondition);
       }
 
-      const orderField = table[dateField] || table.createdAt;
+      const orderField = table[dateField as any] || table.createdAt;
       const records = await query
         .orderBy(desc(orderField))
         .limit(parseInt(limit as string));
@@ -96,7 +96,7 @@ function createAutoCRUD(app: Express, config: {
       const { userId } = req.params;
       const { startDate, endDate, limit = '50', status, leaveType } = req.query;
 
-      let whereCondition = eq(table.userId, parseInt(userId));
+      let whereCondition: (SQL|undefined) = eq(table.userId, parseInt(userId));
 
       // Date range filtering
       if (startDate && endDate && dateField && table[dateField]) {
@@ -114,7 +114,7 @@ function createAutoCRUD(app: Express, config: {
         whereCondition = and(whereCondition, eq(table.leaveType, leaveType as string));
       }
 
-      const orderField = table[dateField] || table.createdAt;
+      const orderField = table[dateField as any] || table.createdAt;
       const records = await db.select().from(table)
         .where(whereCondition)
         .orderBy(desc(orderField))
@@ -161,11 +161,11 @@ function createAutoCRUD(app: Express, config: {
       const { status } = req.params;
       const { startDate, endDate, limit = '50', userId, leaveType } = req.query;
 
-      let whereCondition = eq(table.status, status);
+      let whereCondition: (SQL|undefined) = eq(table.status, status);
 
       // Date range filtering
       if (startDate && endDate && dateField && table[dateField]) {
-        whereCondition = and(
+        whereCondition  = and(
           whereCondition,
           gte(table[dateField], startDate as string),
           lte(table[dateField], endDate as string)
@@ -179,7 +179,7 @@ function createAutoCRUD(app: Express, config: {
         whereCondition = and(whereCondition, eq(table.leaveType, leaveType as string));
       }
 
-      const orderField = table[dateField] || table.createdAt;
+      const orderField = table[dateField as any] || table.createdAt;
       const records = await db.select().from(table)
         .where(whereCondition)
         .orderBy(desc(orderField))

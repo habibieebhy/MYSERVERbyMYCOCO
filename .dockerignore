@@ -1,0 +1,15 @@
+node_modules
+node_modules/
+dist
+dist/
+.env
+README.md
+.DS_Store
+.gitignore
+.git
+src/db/migrations/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+src/WORKING.md

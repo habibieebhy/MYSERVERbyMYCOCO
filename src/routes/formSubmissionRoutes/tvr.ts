@@ -60,12 +60,33 @@ const tvrInputSchema = z
     // Nullable numeric
     conversionQuantityValue: z.coerce.number().nullable().optional(),
 
-    // --- NEW FIELDS (from schema) ---
     siteVisitType: nullableString,
     dhalaiVerificationCode: nullableString,
     isVerificationStatus: nullableString,
     meetingId: nullableString,
     pjpId: nullableString,
+
+    timeSpentinLoc: nullableString,
+    purposeOfVisit: nullableString,
+    sitePhotoUrl: nullableString,
+    
+    firstVisitTime: z.coerce.date().nullable().optional(),
+    lastVisitTime: z.coerce.date().nullable().optional(),
+    
+    firstVisitDay: nullableString,
+    lastVisitDay: nullableString,
+
+    siteVisitsCount: z.coerce.number().int().nullable().optional(),
+    otherVisitsCount: z.coerce.number().int().nullable().optional(),
+    totalVisitsCount: z.coerce.number().int().nullable().optional(),
+
+    region: nullableString,
+    area: nullableString,
+
+    latitude: z.coerce.number().nullable().optional(),
+    longitude: z.coerce.number().nullable().optional(),
+    
+    masonId: nullableString,
   })
   .strict();
 
@@ -119,6 +140,33 @@ function createAutoCRUD(app: Express, config: {
         isVerificationStatus: input.isVerificationStatus ?? null,
         meetingId: input.meetingId ?? null,
         pjpId: input.pjpId ?? null,
+
+        timeSpentinLoc: input.timeSpentinLoc ?? null,
+        purposeOfVisit: input.purposeOfVisit ?? null,
+        sitePhotoUrl: input.sitePhotoUrl ?? null,
+        
+        firstVisitTime: input.firstVisitTime ?? null,
+        lastVisitTime: input.lastVisitTime ?? null,
+        
+        firstVisitDay: input.firstVisitDay ?? null,
+        lastVisitDay: input.lastVisitDay ?? null,
+
+        siteVisitsCount: input.siteVisitsCount ?? null,
+        otherVisitsCount: input.otherVisitsCount ?? null,
+        totalVisitsCount: input.totalVisitsCount ?? null,
+
+        region: input.region ?? null,
+        area: input.area ?? null,
+
+        // Convert number|null to string|null for Drizzle 'numeric' type
+        latitude: input.latitude !== null && input.latitude !== undefined 
+                    ? String(input.latitude) 
+                    : null,
+        longitude: input.longitude !== null && input.longitude !== undefined 
+                    ? String(input.longitude) 
+                    : null,
+        
+        masonId: input.masonId ?? null,
       };
 
       // 3) insert + return

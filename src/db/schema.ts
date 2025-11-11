@@ -1,7 +1,7 @@
 // server/src/db/schema.ts
 import {
   pgTable, serial, integer, varchar, text, boolean, timestamp, date, numeric,
-  uniqueIndex, index, jsonb, uuid
+  uniqueIndex, index, jsonb, uuid, primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -48,6 +48,11 @@ export const users = pgTable("users", {
   salesmanLoginId: varchar("salesman_login_id", { length: 255 }).unique(),
   hashedPassword: text("hashed_password"),
 
+  // --- ADDED FOR TECHNICAL ROLE (PRISMA SYNC) ---
+  isTechnicalRole: boolean("is_technical_role").default(false),
+  techLoginId: varchar("tech_login_id", { length: 255 }).unique(),
+  techHashedPassword: text("tech_hash_password"),
+
   // Hierarchy
   // Drizzle needs this slightly loose typing for self-ref
   reportsToId: integer("reports_to_id").references((): any => users.id, { onDelete: "set null" }),
@@ -83,18 +88,14 @@ export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
   userId: integer("user_id").notNull().references(() => users.id),
   createdById: integer("created_by_id").notNull().references(() => users.id),
 
-  // --- ✅ THE FIX ---
   // Replaced visitDealerName with a direct, reliable link to the dealers table.
   dealerId: varchar("dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null" }),
-  // --- END FIX ---
 
   planDate: date("plan_date").notNull(),
   areaToBeVisited: varchar("area_to_be_visited", { length: 500 }).notNull(),
   description: varchar("description", { length: 500 }),
   status: varchar("status", { length: 50 }).notNull(),
 
-  // --- visitDealerName was REMOVED ---
-  // visitDealerName: varchar("visit_dealer_name", { length: 255 }), // <-- REMOVED
   verificationStatus: varchar("verification_status", { length: 50 }),
   additionalVisitRemarks: varchar("additional_visit_remarks", { length: 500 }),
 
@@ -119,21 +120,16 @@ export const dailyVisitReports = pgTable("daily_visit_reports", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
 
-  // --- ✅ THE FINAL FIX ---
   // The main dealer this visit is associated with.
   dealerId: varchar("dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null" }),
   // The specific sub-dealer that was visited (if any).
   subDealerId: varchar("sub_dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null" }),
-  // --- END FIX ---
   
   reportDate: date("report_date").notNull(),
   dealerType: varchar("dealer_type", { length: 50 }).notNull(), // "Dealer" | "Sub Dealer"
-  // dealerName: varchar("dealer_name", { length: 255 }), // <-- REMOVED
-  // subDealerName: varchar("sub_dealer_name", { length: 255 }), // <-- REMOVED
 
   location: varchar("location", { length: 500 }).notNull(),
   latitude: numeric("latitude", { precision: 10, scale: 7 }).notNull(),
-  // ... (all your other fields remain the same) ...
   longitude: numeric("longitude", { precision: 10, scale: 7 }).notNull(),
   visitType: varchar("visit_type", { length: 50 }).notNull(), 
   dealerTotalPotential: numeric("dealer_total_potential", { precision: 10, scale: 2 }).notNull(),
@@ -149,6 +145,11 @@ export const dailyVisitReports = pgTable("daily_visit_reports", {
   anyRemarks: varchar("any_remarks", { length: 500 }),
   checkInTime: timestamp("check_in_time", { withTimezone: true, precision: 6 }).notNull(),
   checkOutTime: timestamp("check_out_time", { withTimezone: true, precision: 6 }),
+
+  // --- ADDED FROM PRISMA SYNC ---
+  timeSpentinLoc: varchar("time_spent_in_loc", { length: 255 }),
+  // --- END ADDED FIELD ---
+
   inTimeImageUrl: varchar("in_time_image_url", { length: 500 }),
   outTimeImageUrl: varchar("out_time_image_url", { length: 500 }),
   pjpId: varchar("pjp_id", { length: 255 }).references(() => permanentJourneyPlans.id, { onDelete: "set null" }),
@@ -158,8 +159,8 @@ export const dailyVisitReports = pgTable("daily_visit_reports", {
 }, (t) => [
   index("idx_daily_visit_reports_user_id").on(t.userId),
   index("idx_daily_visit_reports_pjp_id").on(t.pjpId),
-  index("idx_dvr_dealer_id").on(t.dealerId), // <-- NEW INDEX
-  index("idx_dvr_sub_dealer_id").on(t.subDealerId), // <-- NEW INDEX
+  index("idx_dvr_dealer_id").on(t.dealerId),
+  index("idx_dvr_sub_dealer_id").on(t.subDealerId),
 ]);
 
 /* ========================= technical_visit_reports ========================= */
@@ -188,18 +189,37 @@ export const technicalVisitReports = pgTable("technical_visit_reports", {
   qualityComplaint: text("quality_complaint"),
   promotionalActivity: text("promotional_activity"),
   channelPartnerVisit: text("channel_partner_visit"),
-  // New fields for parity
+  
   siteVisitType: varchar("site_visit_type", { length: 50 }),
   dhalaiVerificationCode: varchar("dhalai_verification_code", { length: 50 }),
   isVerificationStatus: varchar("is_verification_status", { length: 50 }),
-  meetingId: varchar("meeting_id", { length: 255 }).references(() => tsoMeetings.id), // This now correctly references tsoMeetings
+  meetingId: varchar("meeting_id", { length: 255 }).references(() => tsoMeetings.id),
   pjpId: varchar("pjp_id", { length: 255 }).references(() => permanentJourneyPlans.id, { onDelete: "set null" }),
+  
+  timeSpentinLoc: varchar("time_spent_in_loc", { length: 255 }),
+  purposeOfVisit: varchar("purpose_of_visit", { length: 500 }),
+  sitePhotoUrl: varchar("site_photo_url", { length: 500 }),
+  firstVisitTime: timestamp("first_visit_time", { withTimezone: true, precision: 6 }),
+  lastVisitTime: timestamp("last_visit_time", { withTimezone: true, precision: 6 }),
+  firstVisitDay: varchar("first_visit_day", { length: 255 }),
+  lastVisitDay: varchar("last_visit_day", { length: 255 }),
+  siteVisitsCount: integer("site_visits_count"),
+  otherVisitsCount: integer("other_visits_count"),
+  totalVisitsCount: integer("total_visits_count"),
+  region: varchar("region", { length: 100 }),
+  area: varchar("area", { length: 100 }),
+  latitude: numeric("latitude", { precision: 9, scale: 6 }),
+  longitude: numeric("longitude", { precision: 9, scale: 6 }),
+  // Use (): any for forward reference to masonPcSide
+  masonId: uuid("mason_id").references((): any => masonPcSide.id, { onDelete: "set null" }), 
+  
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
   index("idx_technical_visit_reports_user_id").on(t.userId),
   index("idx_technical_visit_reports_meeting_id").on(t.meetingId),
   index("idx_technical_visit_reports_pjp_id").on(t.pjpId),
+  index("idx_tvr_mason_id").on(t.masonId),
 ]);
 
 /* ========================= dealers (extended to match Prisma) ========================= */
@@ -237,7 +257,7 @@ export const dealers = pgTable("dealers", {
   emailId: varchar("email_id", { length: 255 }),
   businessType: varchar("business_type", { length: 100 }),
   
-  // --- ✅ NEW FIELDS ADDED ---
+  // --- NEW FIELDS ADDED ---
   nameOfFirm: varchar("nameOfFirm", {length: 500}),
   underSalesPromoterName: varchar("underSalesPromoterName", {length: 200}),
   // --- END NEW FIELDS ---
@@ -345,29 +365,6 @@ export const salesmanLeaveApplications = pgTable("salesman_leave_applications", 
   index("idx_salesman_leave_applications_user_id").on(t.userId),
 ]);
 
-/* ========================= client_reports (legacy util) ========================= */
-export const clientReports = pgTable("client_reports", {
-  id: varchar("id", { length: 255 }).primaryKey().default(sql`substr(replace(cast(gen_random_uuid() as text),'-',''),1,25)`),
-  dealerType: text("dealerType").notNull(),
-  dealerSubDealerName: text("dealer_sub_dealer_name").notNull(),
-  location: text("location").notNull(),
-  typeBestNonBest: text("type_best_non_best").notNull(),
-  dealerTotalPotential: numeric("dealerTotalPotential", { precision: 10, scale: 2 }).notNull(),
-  dealerBestPotential: numeric("dealerBestPotential", { precision: 10, scale: 2 }).notNull(),
-  brandSelling: text("brandSelling").array().notNull(),
-  contactPerson: text("contactPerson").notNull(),
-  contactPersonPhoneNo: text("contact_person_phone_no").notNull(),
-  todayOrderMT: numeric("today_order_mt", { precision: 10, scale: 2 }).notNull(),
-  todayCollection: numeric("today_collection_rupees", { precision: 10, scale: 2 }).notNull(),
-  feedbacks: text("feedbacks").notNull(),
-  solutionsAsPerSalesperson: text("solutions_as_per_salesperson").notNull(),
-  anyRemarks: text("anyRemarks").notNull(),
-  checkOutTime: timestamp("check_out_time", { withTimezone: true, precision: 6 }).notNull(),
-  userId: integer("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
-  createdAt: timestamp("createdAt", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt", { withTimezone: true }).defaultNow().notNull(),
-});
-
 /* ========================= competition_reports ========================= */
 export const competitionReports = pgTable("competition_reports", {
   id: varchar("id", { length: 255 }).primaryKey().default(sql`substr(replace(cast(gen_random_uuid() as text),'-',''),1,25)`),
@@ -460,45 +457,6 @@ export const dealerReportsAndScores = pgTable("dealer_reports_and_scores", {
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 });
 
-/* ========================= sales_report ========================= */
-export const salesReport = pgTable("sales_report", {
-  id: serial("id").primaryKey(),
-  date: date("date").notNull(),
-  monthlyTarget: numeric("monthly_target", { precision: 12, scale: 2 }).notNull(),
-  tillDateAchievement: numeric("till_date_achievement", { precision: 12, scale: 2 }).notNull(),
-  yesterdayTarget: numeric("yesterday_target", { precision: 12, scale: 2 }),
-  yesterdayAchievement: numeric("yesterday_achievement", { precision: 12, scale: 2 }),
-  salesPersonId: integer("sales_person_id").notNull().references(() => users.id),
-  dealerId: varchar("dealer_id", { length: 255 }).notNull().references(() => dealers.id),
-});
-
-/* ========================= collection_reports ========================= */
-export const collectionReports = pgTable("collection_reports", {
-  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
-  dvrId: varchar("dvr_id", { length: 255 }).notNull().unique().references(() => dailyVisitReports.id, { onDelete: "cascade" }),
-  dealerId: varchar("dealer_id", { length: 255 }).notNull().references(() => dealers.id, { onDelete: "cascade" }),
-  collectedAmount: numeric("collected_amount", { precision: 12, scale: 2 }).notNull(),
-  collectedOnDate: date("collected_on_date").notNull(),
-  weeklyTarget: numeric("weekly_target", { precision: 12, scale: 2 }),
-  tillDateAchievement: numeric("till_date_achievement", { precision: 12, scale: 2 }),
-  yesterdayTarget: numeric("yesterday_target", { precision: 12, scale: 2 }),
-  yesterdayAchievement: numeric("yesterday_achievement", { precision: 12, scale: 2 }),
-  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
-}, (t) => [
-  index("idx_collection_reports_dealer_id").on(t.dealerId),
-]);
-
-/* ========================= dealer_development_process ========================= */
-export const ddp = pgTable("dealer_development_process", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  dealerId: varchar("dealer_id", { length: 255 }).notNull().references(() => dealers.id),
-  creationDate: date("creation_date").notNull(),
-  status: text("status").notNull(),
-  obstacle: text("obstacle"),
-});
-
 /* ========================= ratings ========================= */
 export const ratings = pgTable("ratings", {
   id: serial("id").primaryKey(),
@@ -531,32 +489,47 @@ export const dealerBrandMapping = pgTable("dealer_brand_mapping", {
   uniqueIndex("dealer_brand_mapping_dealer_id_brand_id_unique").on(t.dealerId, t.brandId),
 ]);
 
-/* ========================= gift_inventory (new) ========================= */
-export const giftInventory = pgTable("gift_inventory", {
+/* ========================= rewards (Renamed from gift_inventory to align with sample) ========================= */
+export const rewards = pgTable("rewards", {
   id: serial("id").primaryKey(),
+  categoryId: integer("category_id").references((): any => rewardCategories.id, { onDelete: "no action" }),
   itemName: varchar("item_name", { length: 255 }).notNull().unique(),
-  unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
+  pointCost: integer("point_cost").notNull(),
   totalAvailableQuantity: integer("total_available_quantity").notNull(),
+  stock: integer("stock").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  meta: jsonb("meta"), // {imageUrl, brand, variant}
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
-});
+}, (t) => [
+  index("idx_rewards_category_id").on(t.categoryId),
+]);
 
-/* ========================= gift_allocation_logs (new) ========================= */
+
+/* ========================= gift_allocation_logs ========================= */
 export const giftAllocationLogs = pgTable("gift_allocation_logs", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
-  giftId: integer("gift_id").notNull().references(() => giftInventory.id),
-  userId: integer("user_id").notNull().references(() => users.id),
+  giftId: integer("gift_id").notNull().references(() => rewards.id), // References renamed table
+  userId: integer("user_id").notNull().references(() => users.id), // TSO/Salesman who managed the gift
   transactionType: varchar("transaction_type", { length: 50 }).notNull(), // Allocation | Transfer | Distribution | Deduction
   quantity: integer("quantity").notNull(),
   sourceUserId: integer("source_user_id").references(() => users.id, { onDelete: "set null" }),
   destinationUserId: integer("destination_user_id").references(() => users.id, { onDelete: "set null" }),
-  relatedReportId: varchar("related_report_id", { length: 255 }),
+  
+  // --- MODIFIED FOR PRISMA SYNC ---
+  technicalVisitReportId: varchar("technical_visit_report_id", { length: 255 }).references(() => technicalVisitReports.id, { onDelete: "set null" }),
+  dealerVisitReportId: varchar("dealer_visit_report_id", { length: 255 }).references(() => dailyVisitReports.id, { onDelete: "set null" }),
+  // --- END MODIFICATION ---
+
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
   index("idx_gift_logs_gift_id").on(t.giftId),
   index("idx_gift_logs_user_id").on(t.userId),
   index("idx_gift_logs_source_user_id").on(t.sourceUserId),
   index("idx_gift_logs_destination_user_id").on(t.destinationUserId),
+  // --- ADDED INDEXES ---
+  index("idx_gift_logs_tvr_id").on(t.technicalVisitReportId),
+  index("idx_gift_logs_dvr_id").on(t.dealerVisitReportId),
 ]);
 
 /* ========================= sales_orders (FIXED) ========================= */
@@ -607,10 +580,8 @@ export const salesOrders = pgTable("sales_orders", {
   itemType: varchar("item_type", { length: 20 }), // "PPC" | "OPC"
   itemGrade: varchar("item_grade", { length: 10 }), // "33" | "43" | "53"
   
-  // --- ✅ THE FIX ---
   // Added status field for the Admin approval workflow
   status: varchar("status", { length: 50 }).notNull().default("Pending"), // e.g., "Pending", "Approved", "Rejected"
-  // --- END FIX ---
 
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
@@ -618,57 +589,8 @@ export const salesOrders = pgTable("sales_orders", {
   index("idx_sales_orders_dvr_id").on(t.dvrId),
   index("idx_sales_orders_pjp_id").on(t.pjpId),
   index("idx_sales_orders_order_date").on(t.orderDate),
-  index("idx_sales_orders_dealer_id").on(t.dealerId), // Added index for dealer filtering
-  index("idx_sales_orders_status").on(t.status), // <-- NEW INDEX ADDED
-]);
-/* ========================= master_connected_table ========================= */
-export const masterConnectedTable = pgTable("master_connected_table", {
-  id: varchar("id", { length: 255 }).primaryKey().default(sql`gen_random_uuid()`),
-  companyId: integer("companyId"),
-  userId: integer("userId"),
-  dealerId: varchar("dealerId", { length: 255 }),
-  dvrId: varchar("dvrId", { length: 255 }),
-  tvrId: varchar("tvrId", { length: 255 }),
-  permanentJourneyPlanId: varchar("permanentJourneyPlanId", { length: 255 }),
-  permanentJourneyPlanCreatedById: integer("permanentJourneyPlanCreatedById"),
-  dailyTaskId: varchar("dailyTaskId", { length: 255 }),
-  attendanceId: varchar("attendanceId", { length: 255 }),
-  leaveApplicationId: varchar("leaveApplicationId", { length: 255 }),
-  clientReportId: varchar("clientReportId", { length: 255 }),
-  competitionReportId: varchar("competitionReportId", { length: 255 }),
-  geoTrackingId: varchar("geoTrackingId", { length: 255 }),
-  salesOrderId: varchar("salesOrderId", { length: 255 }),
-  dealerReportsAndScoresId: varchar("dealerReportsAndScoresId", { length: 255 }),
-  salesReportId: integer("salesReportId"),
-  collectionReportId: varchar("collectionReportId", { length: 255 }),
-  ddpId: integer("ddpId"),
-  ratingId: integer("ratingId"),
-  brandId: integer("brandId"),
-  dealerBrandMappingId: varchar("dealerBrandMappingId", { length: 255 }),
-  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
-}, (t) => [
-  index("idx_mct_company_id").on(t.companyId),
-  index("idx_mct_user_id").on(t.userId),
-  index("idx_mct_dealer_id").on(t.dealerId),
-  index("idx_mct_pjp_id").on(t.permanentJourneyPlanId),
-  index("idx_mct_pjp_created_by_id").on(t.permanentJourneyPlanCreatedById),
-  index("idx_mct_dailytask_id").on(t.dailyTaskId),
-  index("idx_mct_dvr_id").on(t.dvrId),
-  index("idx_mct_tvr_id").on(t.tvrId),
-  index("idx_mct_attendance_id").on(t.attendanceId),
-  index("idx_mct_leave_id").on(t.leaveApplicationId),
-  index("idx_mct_client_report_id").on(t.clientReportId),
-  index("idx_mct_comp_report_id").on(t.competitionReportId),
-  index("idx_mct_geotracking_id").on(t.geoTrackingId),
-  index("idx_mct_sales_order_id").on(t.salesOrderId),
-  index("idx_mct_dealer_scores_id").on(t.dealerReportsAndScoresId),
-  index("idx_mct_sales_report_id").on(t.salesReportId),
-  index("idx_mct_collection_report_id").on(t.collectionReportId),
-  index("idx_mct_ddp_id").on(t.ddpId),
-  index("idx_mct_rating_id").on(t.ratingId),
-  index("idx_mct_brand_id").on(t.brandId),
-  index("idx_mct_dealer_brand_map_id").on(t.dealerBrandMappingId),
+  index("idx_sales_orders_dealer_id").on(t.dealerId),
+  index("idx_sales_orders_status").on(t.status),
 ]);
 
 // Tally Data Table
@@ -681,6 +603,166 @@ export const tallyRaw = pgTable("tally_raw", {
  .notNull(),
 });
 
+/* ========================= mason_pc_side (Modified for KYC and Points Balance) ========================= */
+export const masonPcSide = pgTable("mason_pc_side", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 100 }).notNull(),
+  phoneNumber: text("phone_number").notNull(),
+  kycDocumentName: varchar("kyc_doc_name", { length: 100 }),
+  kycDocumentIdNum: varchar("kyc_doc_id_num", { length: 150 }),
+  
+  // Renamed verificationStatus to kycStatus for consistency with loyalty app
+  kycStatus: varchar("kyc_status", { length: 50 }).default("none"), // "none" | "pending" | "approved" | "rejected"
+  // Renamed pointsGained to pointsBalance for consistency with loyalty app
+  pointsBalance: integer("points_balance").notNull().default(0), 
+  firebaseUid: varchar("firebase_uid", { length: 128 }).unique(),
+  
+  bagsLifted: integer("bags_lifted"), // Keep for historical tracking of volume
+  isReferred: boolean("is_referred"),
+  referredByUser: text("referred_by_user"),
+  referredToUser: text("referred_to_user"),
+  dealerId: varchar("dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null", onUpdate: "cascade" }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null", onUpdate: "cascade" }), // TSO/Salesperson ID
+}, (t) => [
+  index("idx_mason_pc_side_dealer_id").on(t.dealerId),
+  index("idx_mason_pc_side_user_id").on(t.userId),
+]);
+
+/* ========================= otp_verifications ========================= */
+export const otpVerifications = pgTable("otp_verifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  otpCode: varchar("otp_code", { length: 10 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true, precision: 6 }).notNull(),
+  masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade" }),
+}, (t) => [
+  index("idx_otp_verifications_mason_id").on(t.masonId),
+]);
+
+/* ========================= schemes_offers ========================= */
+export const schemesOffers = pgTable("schemes_offers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description"),
+  startDate: timestamp("start_date", { withTimezone: true, precision: 6 }),
+  endDate: timestamp("end_date", { withTimezone: true, precision: 6 }),
+});
+
+/* ========================= mason_on_scheme (join table) ========================= */
+export const masonOnScheme = pgTable("mason_on_scheme", {
+  masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade", onUpdate: "cascade" }),
+  schemeId: uuid("scheme_id").notNull().references(() => schemesOffers.id, { onDelete: "cascade", onUpdate: "cascade" }),
+  enrolledAt: timestamp("enrolled_at", { withTimezone: true, precision: 6 }).defaultNow(),
+  status: varchar("status", { length: 255 }),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.masonId, t.schemeId] }),
+}));
+
+/* ========================= masons_on_meetings (join table) ========================= */
+export const masonsOnMeetings = pgTable("masons_on_meetings", {
+  masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade" }),
+  meetingId: varchar("meeting_id", { length: 255 }).notNull().references(() => tsoMeetings.id, { onDelete: "cascade" }),
+  attendedAt: timestamp("attended_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.masonId, t.meetingId] }),
+  meetingIdIndex: index("idx_masons_on_meetings_meeting_id").on(t.meetingId),
+}));
+
+
+// --- NEW LOYALTY TABLES FROM SAMPLE SCHEMA (Referencing masonPcSide) ---
+
+/* ========================= reward_categories (new) ========================= */
+export const rewardCategories = pgTable("reward_categories", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 120 }).notNull().unique(),
+});
+
+
+/* ========================= kyc_submissions (new) ========================= */
+export const kycSubmissions = pgTable("kyc_submissions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // References masonPcSide ID (UUID)
+  masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade" }), 
+  aadhaarNumber: varchar("aadhaar_number", { length: 20 }),
+  panNumber: varchar("pan_number", { length: 20 }),
+  voterIdNumber: varchar("voter_id_number", { length: 20 }),
+  documents: jsonb("documents"), // {aadhaarFrontUrl, aadhaarBackUrl, panUrl, voterUrl}
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // "none", "pending", "approved", "rejected"
+  remark: text("remark"),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
+}, (t) => [
+  index("idx_kyc_submissions_mason_id").on(t.masonId),
+]);
+
+/* ========================= tso_assignments (MODIFIED to match Prisma) ========================= */
+export const tsoAssignments = pgTable("tso_assignments", {
+  tsoId: integer("tso_id").notNull().references(() => users.id), // TSO is a regular user
+  masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade" }), // The mason being managed
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.tsoId, t.masonId] }),
+  // Only index on tsoId to match Prisma's @@index([tsoId])
+  tsoIdIndex: index("idx_tso_assignments_tso_id").on(t.tsoId),
+}));
+
+/* ========================= bag_lifts (MODIFIED to match Prisma) ========================= */
+export const bagLifts = pgTable("bag_lifts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade" }), 
+  dealerId: varchar("dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null" }),
+  purchaseDate: timestamp("purchase_date", { withTimezone: true, precision: 6 }).notNull(),
+  bagCount: integer("bag_count").notNull(),
+  pointsCredited: integer("points_credited").notNull(), 
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  // ADDED onDelete: "set null" for Prisma parity
+  approvedBy: integer("approved_by").references(() => users.id, { onDelete: "set null" }), 
+  approvedAt: timestamp("approved_at", { withTimezone: true, precision: 6 }),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+}, (t) => [
+  index("idx_bag_lifts_mason_id").on(t.masonId),
+  index("idx_bag_lifts_dealer_id").on(t.dealerId),
+  index("idx_bag_lifts_status").on(t.status),
+]);
+
+/* ========================= points_ledger (MODIFIED to match Prisma) ========================= */
+export const pointsLedger = pgTable("points_ledger", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade" }),
+  sourceType: varchar("source_type", { length: 32 }).notNull(), // "bag_lift" | "redemption" | "adjustment"
+  sourceId: uuid("source_id"), // References bag_lifts.id or rewardRedemptions.id
+  points: integer("points").notNull(), // +ve for credit, -ve for debit
+  memo: text("memo"),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+}, (t) => [
+  // Added unique index on sourceId to match Prisma's @@unique constraint
+  uniqueIndex("points_ledger_source_id_unique").on(t.sourceId),
+  index("idx_points_ledger_mason_id").on(t.masonId),
+  index("idx_points_ledger_source_id").on(t.sourceId),
+]);
+
+
+/* ========================= reward_redemptions (new - to cover missing orders table) ========================= */
+export const rewardRedemptions = pgTable("reward_redemptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade" }),
+  rewardId: integer("reward_id").notNull().references(() => rewards.id, { onDelete: "no action" }),
+  quantity: integer("quantity").notNull().default(1),
+  status: varchar("status", { length: 20 }).notNull().default("placed"), // "placed", "approved", "shipped", "delivered", "rejected"
+  pointsDebited: integer("points_debited").notNull(),
+  // Delivery details
+  deliveryName: varchar("delivery_name", { length: 160 }),
+  deliveryPhone: varchar("delivery_phone", { length: 20 }),
+  deliveryAddress: text("delivery_address"),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
+}, (t) => [
+  index("idx_reward_redemptions_mason_id").on(t.masonId),
+  index("idx_reward_redemptions_status").on(t.status),
+]);
+
+// --- END NEW LOYALTY TABLES FROM SAMPLE SCHEMA ---
+
+
 /* ========================= drizzle-zod insert schemas ========================= */
 export const insertCompanySchema = createInsertSchema(companies);
 export const insertUserSchema = createInsertSchema(users);
@@ -690,20 +772,33 @@ export const insertPermanentJourneyPlanSchema = createInsertSchema(permanentJour
 export const insertDealerSchema = createInsertSchema(dealers);
 export const insertSalesmanAttendanceSchema = createInsertSchema(salesmanAttendance);
 export const insertSalesmanLeaveApplicationSchema = createInsertSchema(salesmanLeaveApplications);
-export const insertClientReportSchema = createInsertSchema(clientReports);
 export const insertCompetitionReportSchema = createInsertSchema(competitionReports);
 export const insertGeoTrackingSchema = createInsertSchema(geoTracking);
 export const insertDailyTaskSchema = createInsertSchema(dailyTasks);
 export const insertDealerReportsAndScoresSchema = createInsertSchema(dealerReportsAndScores);
-export const insertSalesReportSchema = createInsertSchema(salesReport);
-export const insertCollectionReportSchema = createInsertSchema(collectionReports);
-export const insertDdpSchema = createInsertSchema(ddp);
 export const insertRatingSchema = createInsertSchema(ratings);
 export const insertSalesOrderSchema = createInsertSchema(salesOrders);
 export const insertBrandSchema = createInsertSchema(brands);
 export const insertDealerBrandMappingSchema = createInsertSchema(dealerBrandMapping);
 export const insertTsoMeetingSchema = createInsertSchema(tsoMeetings);
-export const insertGiftInventorySchema = createInsertSchema(giftInventory);
+
+// Changed giftInventory to rewards
+export const insertRewardsSchema = createInsertSchema(rewards); 
 export const insertGiftAllocationLogSchema = createInsertSchema(giftAllocationLogs);
-export const insertMasterConnectedTableSchema = createInsertSchema(masterConnectedTable);
 export const insertTallyRawTableSchema = createInsertSchema(tallyRaw);
+
+// Modified masonPcSide schema
+export const insertMasonPcSideSchema = createInsertSchema(masonPcSide);
+export const insertOtpVerificationSchema = createInsertSchema(otpVerifications);
+export const insertSchemesOffersSchema = createInsertSchema(schemesOffers);
+export const insertMasonOnSchemeSchema = createInsertSchema(masonOnScheme);
+export const insertMasonsOnMeetingsSchema = createInsertSchema(masonsOnMeetings);
+
+// --- ADDED DRIZZLE-ZOD SCHEMAS ---
+export const insertRewardCategorySchema = createInsertSchema(rewardCategories);
+export const insertKycSubmissionSchema = createInsertSchema(kycSubmissions);
+export const insertTsoAssignmentSchema = createInsertSchema(tsoAssignments);
+export const insertBagLiftSchema = createInsertSchema(bagLifts);
+export const insertPointsLedgerSchema = createInsertSchema(pointsLedger);
+export const insertRewardRedemptionSchema = createInsertSchema(rewardRedemptions);
+// --- END ADDED DRIZZLE-ZOD SCHEMAS ---

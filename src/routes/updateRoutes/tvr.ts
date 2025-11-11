@@ -60,12 +60,33 @@ const tvrPatchSchema = z
     // Nullable numeric
     conversionQuantityValue: z.coerce.number().nullable().optional(),
 
-    // New fields
     siteVisitType: nullableString,
     dhalaiVerificationCode: nullableString,
     isVerificationStatus: nullableString,
     meetingId: nullableString,
     pjpId: nullableString,
+
+    timeSpentinLoc: nullableString,
+    purposeOfVisit: nullableString,
+    sitePhotoUrl: nullableString,
+    
+    firstVisitTime: z.coerce.date().nullable().optional(),
+    lastVisitTime: z.coerce.date().nullable().optional(),
+    
+    firstVisitDay: nullableString,
+    lastVisitDay: nullableString,
+
+    siteVisitsCount: z.coerce.number().int().nullable().optional(),
+    otherVisitsCount: z.coerce.number().int().nullable().optional(),
+    totalVisitsCount: z.coerce.number().int().nullable().optional(),
+
+    region: nullableString,
+    area: nullableString,
+
+    latitude: z.coerce.number().nullable().optional(),
+    longitude: z.coerce.number().nullable().optional(),
+    
+    masonId: nullableString,
   })
   .strict();
 
@@ -130,6 +151,37 @@ export default function setupTechnicalVisitReportsPatchRoutes(app: Express) {
       if (input.isVerificationStatus !== undefined) patch.isVerificationStatus = input.isVerificationStatus;
       if (input.meetingId !== undefined) patch.meetingId = input.meetingId;
       if (input.pjpId !== undefined) patch.pjpId = input.pjpId;
+
+      if (input.timeSpentinLoc !== undefined) patch.timeSpentinLoc = input.timeSpentinLoc;
+      if (input.purposeOfVisit !== undefined) patch.purposeOfVisit = input.purposeOfVisit;
+      if (input.sitePhotoUrl !== undefined) patch.sitePhotoUrl = input.sitePhotoUrl;
+      if (input.firstVisitTime !== undefined) patch.firstVisitTime = input.firstVisitTime;
+      if (input.lastVisitTime !== undefined) patch.lastVisitTime = input.lastVisitTime;
+      if (input.firstVisitDay !== undefined) patch.firstVisitDay = input.firstVisitDay;
+      if (input.lastVisitDay !== undefined) patch.lastVisitDay = input.lastVisitDay;
+      if (input.siteVisitsCount !== undefined) patch.siteVisitsCount = input.siteVisitsCount;
+      if (input.otherVisitsCount !== undefined) patch.otherVisitsCount = input.otherVisitsCount;
+      if (input.totalVisitsCount !== undefined) patch.totalVisitsCount = input.totalVisitsCount;
+      if (input.region !== undefined) patch.region = input.region;
+      if (input.area !== undefined) patch.area = input.area;
+      if (input.masonId !== undefined) patch.masonId = input.masonId;
+
+      // Handle numeric-to-string conversion for patch
+      if (input.conversionQuantityValue !== undefined) {
+        patch.conversionQuantityValue = input.conversionQuantityValue !== null 
+          ? String(input.conversionQuantityValue) 
+          : null;
+      }
+      if (input.latitude !== undefined) {
+        patch.latitude = input.latitude !== null 
+          ? String(input.latitude) 
+          : null;
+      }
+      if (input.longitude !== undefined) {
+        patch.longitude = input.longitude !== null 
+          ? String(input.longitude) 
+          : null;
+      }
 
       patch.updatedAt = new Date(); // always touch updatedAt
 

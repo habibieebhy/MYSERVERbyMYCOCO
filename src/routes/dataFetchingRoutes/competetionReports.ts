@@ -71,10 +71,10 @@ function createAutoCRUD(app: Express, config: {
       let query = db.select().from(table);
       
       if (whereCondition) {
-        query = query.where(whereCondition);
+        (query as any) = query.where(whereCondition);
       }
 
-      const orderField = table[dateField] || table.createdAt;
+      const orderField = table[dateField as any] || table.createdAt;
       const records = await query
         .orderBy(desc(orderField))
         .limit(parseInt(limit as string));
@@ -96,7 +96,7 @@ function createAutoCRUD(app: Express, config: {
       const { userId } = req.params;
       const { startDate, endDate, limit = '50', brandName } = req.query;
 
-      let whereCondition = eq(table.userId, parseInt(userId));
+      let whereCondition  = eq(table.userId, parseInt(userId));
 
       // Date range filtering
       if (startDate && endDate && dateField && table[dateField]) {
