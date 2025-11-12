@@ -474,54 +474,64 @@ app.post(`/api/${endpoint}`, async (req: Request, res: Response) => {
 });
 ```
 
-### B. Loyalty & Sales Transaction Submission
+This updated Markdown file section reflects the complete and corrected flow for the Mason Loyalty Program, including the critical TSO/Admin approval logic required by the scheme policy.
+
+-----
+
+### B. Loyalty & Sales Transaction Submission (POST Routes)
+
+These routes are used by the Mason or by internal staff to initiate a process (enrollment, ordering, KYC submission).
 
 | Endpoint | Method | Description & Key Logic |
 | :--- | :--- | :--- |
-| `/api/bag-lifts` | **POST** | **Atomic Transaction.** Inserts the `bagLifts` record and instantly credits the points by inserting a corresponding **POSITIVE** record into `pointsLedger` within a transaction. |
-| `/api/rewards-redemption` | **POST** | **Atomic Transaction.** Performs a critical **pre-transaction check for `pointsBalance`** before proceeding. If successful, it debits the points by inserting a corresponding **NEGATIVE** record into `pointsLedger` AND updates the denormalized `masonPcSide.pointsBalance`. |
+| `/api/kyc-submissions` | **POST** | **Initial KYC.** Mason submits details. Creates a new `kycSubmissions` record and atomically updates the corresponding `masonPcSide.kycStatus` to **'pending'**. |
+| `/api/bag-lifts` | **POST** | **Initial Submission (Pending).** Creates a new `bagLifts` record with status: **'pending'**. Point crediting is strictly **deferred** until TSO approval via the PATCH route. |
+| `/api/rewards-redemption` | **POST** | **Atomic Debit & Order.** Performs a critical **pre-transaction check for `pointsBalance`**. If sufficient, it debits the points by inserting a **NEGATIVE** record into `pointsLedger` AND updates the denormalized `masonPcSide.pointsBalance` transactionally. |
+| `/api/rewards` | **POST** | **Catalogue Management.** Admin/TSO creates a new reward item in the catalogue. Handles unique name constraint and foreign key checks for `categoryId`. |
+| `/api/masons-on-scheme` | **POST** | Creates the join record for scheme enrollment. Handles `409 Conflict` (duplicate enrollment) and `400 Foreign Key` errors explicitly. |
+| `/api/masons` | **POST** | Creates a new `masonPcSide` contractor profile, typically used for manual registration or initial user creation during auth. |
 | `/api/sales-orders` | **POST** | Handles sales order creation, which involves **server-side calculation** of fields like `pendingPayment` and `itemPriceAfterDiscount` based on the input amounts. |
-| `/api/masons-on-scheme` | **POST** | Creates the join record. Handles `409 Conflict` (duplicate enrollment) and `400 Foreign Key` errors explicitly. |
-| `/api/masons` | **POST** | Creates a new `masonPcSide` contractor profile, ensuring phone number and name fields are processed correctly. |
 
-#### Code Sample: Atomic Debit & Balance Check
+#### Code Sample: Critical Bag Lift TSO Approval (Atomic Credit)
+
+Since the POST route now only sets the status to `'pending'`, the core business logic is in the PATCH route, which ensures **validated bag lifting data** is used for point calculation.
 
 ```typescript
-// File: routes/formSubmissionRoutes/rewardsRedemption.ts
-app.post('/api/rewards-redemption', async (req: Request, res: Response) => {
-  // ... validation ...
-  const totalPointsDebited = pointsDebited * quantity;
+// File: routes/updateRoutes/bagsLift.ts (TSO/Admin Action)
+app.patch('/api/bag-lifts/:id', async (req: Request, res: Response) => {
+  // ... validation, fetch existing, check current status ...
 
-  // --- CRITICAL PRE-TRANSACTION CHECK ---
-  const [masonRecord] = await db.select({ pointsBalance: masonPcSide.pointsBalance })
-    .from(masonPcSide).where(eq(masonPcSide.id, masonId)).limit(1);
-  if (masonRecord.pointsBalance < totalPointsDebited) {
-    return res.status(400).json({ error: `Insufficient points balance. Required: ${totalPointsDebited}, Available: ${masonRecord.pointsBalance}.` });
-  }
-  // --- END CRITICAL CHECK ---
+  // TSO Approving a Pending Lift (Credit Points)
+  const [updatedBagLift] = await db.transaction(async (tx) => {
+    if (status === 'approved' && currentStatus === 'pending') {
+        
+        // 1. Update Bag Lift Record to 'approved'
+        const [updated] = await tx.update(bagLifts)
+          .set({ status: 'approved', approvedBy: approvedBy ?? null, approvedAt: new Date() })
+          .where(eq(bagLifts.id, id))
+          .returning();
+          
+        // 2. Create Points Ledger Entry (Credit)
+        await tx.insert(pointsLedger)
+            .values({
+                masonId: masonId,
+                sourceType: 'bag_lift',
+                sourceId: updated.id,
+                points: points, // <--- POSITIVE CREDIT
+                memo: memo || `Credit for ${updated.bagCount} bags (approved by TSO)`,
+            })
+            .returning();
+        
+        // 3. Update Mason's Balance
+        await tx.update(masonPcSide)
+          .set({ pointsBalance: sql`${masonPcSide.pointsBalance} + ${points}` })
+          .where(eq(masonPcSide.id, masonId));
 
-  const result = await db.transaction(async (tx) => {
-    // 1. Insert Redemption Record
-    const [newRedemption] = await tx.insert(rewardRedemptions) /* ... */ .returning();
-
-    // 2. Insert the Points Ledger DEBIT entry (Negative points)
-    const [newLedgerEntry] = await tx.insert(pointsLedger)
-      .values({
-        masonId: newRedemption.masonId,
-        sourceType: 'redemption',
-        sourceId: newRedemption.id,
-        points: -totalPointsDebited, // <--- NEGATIVE DEBIT
-        memo: memo || `Debit for ${newRedemption.quantity} x Reward ID ${newRedemption.rewardId}`,
-      })
-      .returning();
-
-    // 3. Update the Mason's pointsBalance (denormalization)
-    await tx.update(masonPcSide)
-      .set({ pointsBalance: sql`${masonPcSide.pointsBalance} - ${totalPointsDebited}` })
-      .where(eq(masonPcSide.id, masonId));
-    
-    return { redemption: newRedemption, ledger: newLedgerEntry };
+        return [updated];
+    } 
+    // ... logic for approved -> rejected (unwind debit) and other status changes ...
   });
+  
   // ... return success ...
 });
 ```
@@ -530,53 +540,24 @@ app.post('/api/rewards-redemption', async (req: Request, res: Response) => {
 
 ## III. PATCH and PUT (Update) Routes
 
-These routes enable partial (`PATCH`) or full (`PUT`) modification of existing resources, ensuring validation and data integrity.
+These routes enable modification, approval, and fulfillment of existing resources.
 
 ### A. Core Update Operations
 
 | Endpoint | Method | Description & Key Logic |
 | :--- | :--- | :--- |
-| `/api/dealers/:id` | **PATCH** | Dealer partial update. **Key:** Re-uses the complex Radar upsert logic. Updates the DB only if the geofence update succeeds, combining data from the existing record and the patch. |
-| `/api/sales-orders/:id` | **PATCH** | Sales Order update. **Key:** Handles updates to the new `status` field. Re-calculates dependent numeric fields (`pendingPayment`, `itemPriceAfterDiscount`) only if their input components (e.g., `receivedPayment`, `itemPrice`) are present in the patch or exist on the original record. |
+| `/api/bag-lifts/:id` | **PATCH** | **Bag Lift Approval (Critical).** Handles the core point crediting/debiting logic when a TSO changes the submission status (see code sample above). |
+| `/api/kyc-submissions/:id` | **PATCH** | **KYC Approval/Rejection.** Atomically updates the `kycSubmissions` record and the primary `masonPcSide.kycStatus` field to `approved` or `rejected`. |
+| `/api/rewards-redemption/:id` | **PATCH** | **Order Fulfillment.** Admin/TSO updates the fulfillment status (e.g., `'placed'` to `'shipped'` or `'delivered'`) for a redemption order. |
+| `/api/rewards/:id` | **PATCH** | **Catalogue Management.** Admin/TSO updates reward details, stock, or point cost. Essential for maintaining the reward catalogue. |
+| `/api/dealers/:id` | **PATCH** | Dealer partial update. **Key:** Re-uses the complex Radar upsert logic. Updates the DB only if the geofence update succeeds. |
+| `/api/sales-orders/:id` | **PATCH** | Sales Order update. **Key:** Handles updates to the new `status` field. Re-calculates dependent numeric fields (`pendingPayment`, `itemPriceAfterDiscount`) only if their input components are changed. |
 | `/api/dealer-reports-scores/:dealerId` | **PATCH** | Updates dealer scores, using `dealerId` as the identifier (as it's a unique field in that table). Always updates `lastUpdatedDate` and `updatedAt`. |
 | `/api/schemes-offers/:id` | **PATCH** | Partial updates for schemes. |
 | `/api/schemes-offers/:id` | **PUT** | Full resource replacement for schemes. Requires all fields, ensuring the resulting record is complete. |
 | `/api/tvr/:id` | **PATCH** | Technical Visit Report update. Manually maps various optional fields, including number-to-string coercion for numeric coordinates/values. |
 
-#### Code Sample: Sales Order Recalculation on Patch
-
-```typescript
-// File: routes/updateRoutes/salesorder.ts
-app.patch('/api/sales-orders/:id', async (req: Request, res: Response) => {
-  // ... validation and fetch existing record ...
-  
-  const patch: any = { updatedAt: new Date() };
-
-  // ... map incoming fields to patch ...
-  if (input.status !== undefined) patch.status = input.status; // <--- Status Update
-
-  // Computed Logic: Use patched value or existing value for calculation
-  const p = input.itemPrice !== undefined ? patch.itemPrice : existing.itemPrice;
-  const d = input.discountPercentage !== undefined ? patch.discountPercentage : existing.discountPercentage;
-  
-  // Recalculate itemPriceAfterDiscount if components changed
-  if (input.itemPriceAfterDiscount !== undefined) {
-    patch.itemPriceAfterDiscount = toDecimalString(input.itemPriceAfterDiscount);
-  } else if (input.itemPrice !== undefined || input.discountPercentage !== undefined) {
-    if (p != null && d != null) {
-      patch.itemPriceAfterDiscount = String(Number(p) * (1 - Number(d) / 100));
-    }
-  }
-  
-  // Recalculate pendingPayment if components changed
-  // ... similar logic ...
-
-  const [updated] = await db.update(salesOrders).set(patch).where(eq(salesOrders.id, id)).returning();
-  // ... return updated ...
-});
-```
-
------
+---
 
 ## IV. DELETE (Cleanup) Routes
 

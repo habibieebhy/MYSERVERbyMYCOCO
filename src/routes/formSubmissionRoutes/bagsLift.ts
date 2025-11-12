@@ -1,42 +1,37 @@
 // src/routes/formSubmissionRoutes/bagsLift.ts
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
-import { bagLifts, pointsLedger, insertBagLiftSchema } from '../../db/schema';
+import { bagLifts, insertBagLiftSchema } from '../../db/schema'; // Removed pointsLedger and masonPcSide imports (no longer needed here)
 import { z } from 'zod';
-// Import randomUUID for manual ID generation, following the sample routes pattern
 import { randomUUID } from 'crypto'; 
+import { InferInsertModel } from 'drizzle-orm'; // Added InferInsertModel for better typing
+
+// Define the core BagLift type for use in the insert, excluding the memo that's not in the table
+type BagLiftInsert = InferInsertModel<typeof bagLifts>;
 
 /**
  * Zod schema for the Bag Lift data submission.
- * We extend the Drizzle insert schema to enforce specific types and remove auto-generated fields 
- * like `id`, `createdAt`, `approvedAt`, which will be handled manually or by defaults.
  */
 const bagLiftSubmissionSchema = insertBagLiftSchema.omit({
     id: true,
-    // Status, approvedBy/At will be set during insertion based on approval logic
-    status: true,
+    status: true, // Handled manually to ensure 'pending'
     approvedBy: true, 
     approvedAt: true,
-    createdAt: true, // Handled by DB default or manually
+    createdAt: true, 
 }).extend({
-    // Explicitly define required fields and transformations
     masonId: z.string().uuid({ message: 'A valid Mason ID (UUID) is required.' }),
     dealerId: z.string().min(1, 'Dealer ID is required.'),
-    // Allow date string and transform it to a Date object for DB insertion
     purchaseDate: z.string().transform(str => new Date(str)), 
     bagCount: z.number().int().positive('Bag count must be a positive integer.'),
     pointsCredited: z.number().int().nonnegative('Points credited must be a non-negative integer.'),
-    // Optional memo for the points ledger entry (not part of bagLifts table, but used for ledger)
-    memo: z.string().max(500).optional(), 
+    memo: z.string().max(500).optional(), // Note: Not inserted, but validated
 });
 
 /**
  * Sets up the POST route for the bag_lifts table.
- *
- * POST /api/bag-lifts
- * - Handles the creation of a new bag_lift record.
- * - Manages the transactional creation of a corresponding points_ledger entry.
- * - Status is set to 'approved' immediately (this logic may need adjustment in a real app).
+ * * POST /api/bag-lifts
+ * - Creates a new bag_lift record with status 'pending'.
+ * - DOES NOT credit points. Points will be credited upon TSO approval via PATCH.
  */
 export default function setupBagLiftsPostRoute(app: Express) {
 
@@ -54,64 +49,42 @@ export default function setupBagLiftsPostRoute(app: Express) {
             }
 
             const validatedData = validationResult.data;
-            // Destructure the parts intended for bagLifts vs. pointsLedger
-            const { masonId, pointsCredited, memo, ...bagLiftBody } = validatedData;
+            const { masonId, pointsCredited, ...bagLiftBody } = validatedData;
             
-            // Generate ID manually, matching the pattern in the sample files
             const generatedBagLiftId = randomUUID();
+            
+            // 2. Insert the Bag Lift record (Transaction removed as we only do one DB write now)
+            const insertData: BagLiftInsert = {
+                ...(bagLiftBody as any), // Use as any to manage the Date/string coercion safely
+                id: generatedBagLiftId, 
+                masonId: masonId, 
+                pointsCredited: pointsCredited,
+                status: 'pending', // ✅ FIX: Set status to PENDING
+                approvedBy: null, // Ensure these are null on initial submission
+                approvedAt: null, 
+            };
+            
+            // Note: Since we are no longer updating ledger/balance, a transaction is not strictly required.
+            const [newBagLift] = await db.insert(bagLifts)
+                .values(insertData)
+                .returning();
 
-            // Start a Drizzle transaction to ensure both writes succeed or fail together (atomicity)
-            const result = await db.transaction(async (tx) => {
-                
-                // 2. Insert the Bag Lift record
-                const [newBagLift] = await tx.insert(bagLifts)
-                    .values({
-                        ...bagLiftBody,
-                        id: generatedBagLiftId, // Use the manually generated ID
-                        masonId: masonId, 
-                        pointsCredited: pointsCredited,
-                        status: 'approved', 
-                        // approvedBy: req.user.id, // Requires user auth to be implemented
-                        approvedAt: new Date(), 
-                    })
-                    .returning();
+            if (!newBagLift) {
+                // If the insert failed for some reason (e.g., FK constraint), throw an error.
+                throw new Error('Failed to insert new bag lift record.');
+            }
 
-                if (!newBagLift) {
-                    tx.rollback();
-                    throw new Error('Failed to insert new bag lift record.');
-                }
-                
-                // 3. Insert the corresponding Points Ledger credit entry
-                const [newLedgerEntry] = await tx.insert(pointsLedger)
-                    .values({
-                        masonId: newBagLift.masonId,
-                        sourceType: 'bag_lift',
-                        sourceId: newBagLift.id, // Link to the newly created bag lift ID
-                        points: newBagLift.pointsCredited, // Points are positive (credit)
-                        memo: memo || `Credit for ${newBagLift.bagCount} bags purchased on ${newBagLift.purchaseDate.toDateString()}`,
-                    })
-                    .returning();
-
-                if (!newLedgerEntry) {
-                    tx.rollback();
-                    throw new Error('Failed to insert corresponding points ledger entry.');
-                }
-                
-                return { bagLift: newBagLift, ledger: newLedgerEntry };
-            });
-
-            // If the transaction completed successfully
+            // 3. Send success response
             res.status(201).json({ 
                 success: true, 
-                message: 'Bag Lift successfully recorded and points credited.', 
-                data: result.bagLift,
-                ledgerEntry: result.ledger
+                message: 'Bag Lift successfully submitted for TSO approval.', // ✅ UPDATED MESSAGE
+                data: newBagLift,
+                // Removed ledgerEntry from response as it's no longer created here
             });
 
         } catch (error: any) {
             console.error(`POST Bag Lift error:`, error);
             
-            // Handle Zod validation error specifically (matches sample files)
             if (error instanceof z.ZodError) {
                 return res.status(400).json({
                     success: false,
@@ -124,14 +97,13 @@ export default function setupBagLiftsPostRoute(app: Express) {
                 });
             }
 
-            // General server error
             res.status(500).json({
                 success: false,
-                error: `Failed to create bag lift entry and credit points.`,
+                error: `Failed to create bag lift entry.`,
                 details: error instanceof Error ? error.message : 'Unknown error'
             });
         }
     });
 
-    console.log('✅ Bag Lifts POST endpoint setup complete');
+    console.log('✅ Bag Lifts POST endpoint setup complete (Now defaults to PENDING status)');
 }

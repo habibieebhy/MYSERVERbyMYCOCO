@@ -1,46 +1,52 @@
-# Use a Node.js image with build tools
+# --------------------------------------------------------------------------
+# Stage 1: Builder (Builds source code and development dependencies)
+# --------------------------------------------------------------------------
 FROM node:25-alpine AS builder
 
-# Set the working directory
 WORKDIR /app
 
-# Copy package files
+# 1. Install all dependencies for build
 COPY package.json package-lock.json ./
-
-# Install all dependencies (including devDependencies for building)
 RUN npm install --production=false
 
-# Copy the rest of your application source code
-# (A .dockerignore file is recommended to speed this up)
+# 2. Build the application
 COPY . .
-
-# Run your build script from package.json
-# This creates the 'dist' folder
 RUN npm run build
 
-# ----- Production Stage -----
-# Use a slim Node.js image for the final container
-FROM node:25-alpine
+# --------------------------------------------------------------------------
+# Stage 2: Dependencies (Installs production dependencies only)
+# --------------------------------------------------------------------------
+FROM node:25-alpine AS dependencies
 
-# Set the working directory
 WORKDIR /app
 
-# Set the environment to production
-ENV NODE_ENV=production
-
-# Copy package files again
+# 1. Copy package files
 COPY package.json package-lock.json ./
 
-# Install *only* production dependencies
+# 2. Install ONLY production dependencies
+# This uses the larger 'alpine' image to correctly handle any native bindings,
+# but we will only copy the resulting node_modules folder.
 RUN npm install --production=true
 
-# Copy the built application from the 'builder' stage
+# --------------------------------------------------------------------------
+# Stage 3: Runner (The smallest final runtime image)
+# --------------------------------------------------------------------------
+# Use a much smaller, dedicated runtime image
+FROM node:25-slim AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# 1. Copy production node_modules from the 'dependencies' stage
+COPY --from=dependencies /app/node_modules ./node_modules
+
+# 2. Copy the built source code from the 'builder' stage
 COPY --from=builder /app/dist ./dist
 
-# Copy the 'public' static assets directory
-COPY ./public ./public
+# 3. Copy package.json for the 'start' script to work
+COPY package.json ./
 
-# Your app listens on process.env.PORT or 8000
 # Expose the default port
 EXPOSE 8000
 

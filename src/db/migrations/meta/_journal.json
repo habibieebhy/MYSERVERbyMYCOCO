@@ -29,6 +29,13 @@
       "when": 1762844306905,
       "tag": "0003_stormy_surge",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1762969084391,
+      "tag": "0004_chief_supernaut",
+      "breakpoints": true
     }
   ]
 }
