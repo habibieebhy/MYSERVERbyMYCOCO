@@ -25,6 +25,14 @@ export const companies = pgTable("companies", {
   index("idx_admin_user_id").on(t.adminUserId),
 ]);
 
+export const authSessions = pgTable("auth_sessions", {
+  sessionId: uuid("session_id").primaryKey().defaultRandom(),
+  masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade" }),
+  sessionToken: text("session_token").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+});
+
 /* ========================= users ========================= */
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -781,6 +789,7 @@ export const insertSalesOrderSchema = createInsertSchema(salesOrders);
 export const insertBrandSchema = createInsertSchema(brands);
 export const insertDealerBrandMappingSchema = createInsertSchema(dealerBrandMapping);
 export const insertTsoMeetingSchema = createInsertSchema(tsoMeetings);
+export const insertauthSessionsSchema = createInsertSchema(authSessions);
 
 // Changed giftInventory to rewards
 export const insertRewardsSchema = createInsertSchema(rewards); 

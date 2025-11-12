@@ -48,6 +48,10 @@ import setupSalesOrdersDeleteRoutes from './src/routes/deleteRoutes/salesOrder';
 import setupDealerReportsAndScoresDeleteRoutes from './src/routes/deleteRoutes/dealerReportsAndScores';
 import setupTsoMeetingsDeleteRoutes from './src/routes/deleteRoutes/tsoMeetings';
 
+//firebase stuff 
+import './src/firebase/admin';
+import setupAuthFirebaseRoutes from './src/routes/authFirebase';
+
 // --- Import POST route setups ---
 import setupDailyVisitReportsPostRoutes from './src/routes/formSubmissionRoutes/dvr';
 import setupTechnicalVisitReportsPostRoutes from './src/routes/formSubmissionRoutes/tvr';
@@ -136,11 +140,15 @@ app.get('/api', (req: Request, res: Response) => {
 // --- Modular Route Setup ---
 console.log('🔌 Registering API routes...');
 
+
+
 // Authentication and Users (FIRST)
 setupAuthRoutes(app);                    // /api/auth/login, /api/user/:id
 setupUsersRoutes(app);                   // /api/users/*
 setupCompaniesRoutes(app);                // /api/companies
 setupLogoutAuthRoutes(app);               // /api/auth/logout
+//firebase
+setupAuthFirebaseRoutes(app);
 
 // Core Data Endpoints (GET)
 setupBrandsAndMappingRoutes(app);        // /api/brands/*, /api/dealer-brand-mapping/*

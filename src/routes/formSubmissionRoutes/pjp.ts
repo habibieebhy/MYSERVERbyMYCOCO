@@ -102,7 +102,7 @@ export default function setupPermanentJourneyPlansPostRoutes(app: Express) {
         areaToBeVisited,
         description,
         status,
-        verificationStatus,            // <<— grab it
+        //verificationStatus,            // <<— grab it
         bulkOpId,
         idempotencyKey,
       } = input;
