@@ -5,8 +5,6 @@ import { db } from '../../db/db';
 import { rewardCategories } from '../../db/schema'; // Import the table
 import { eq, and, desc, asc, SQL, ilike } from 'drizzle-orm';
 
-type TableLike = typeof rewardCategories;
-
 /**
  * Sets up GET routes for the reward_categories table.
  *

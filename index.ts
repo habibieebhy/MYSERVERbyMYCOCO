@@ -30,6 +30,8 @@ import setupSchemesOffersRoutes from './src/routes/dataFetchingRoutes/schemesOff
 import setupBagLiftsGetRoutes from './src/routes/dataFetchingRoutes/bagsLift';
 import setupPointsLedgerGetRoutes from './src/routes/dataFetchingRoutes/pointsLedger';
 import setupRewardCategoriesGetRoutes from './src/routes/dataFetchingRoutes/rewardCategories';
+import setupRewardsGetRoutes from './src/routes/dataFetchingRoutes/rewards';
+import setupRewardsRedemptionGetRoutes from './src/routes/dataFetchingRoutes/rewardsRedemption';
 
 // Data Sync UPSERT
 import setupDealerSyncRoutes from './src/routes/dataSync/dealer';
@@ -74,6 +76,8 @@ import setupMasonPcSidePostRoutes from './src/routes/formSubmissionRoutes/masonp
 import setupSchemesOffersPostRoutes from './src/routes/formSubmissionRoutes/schemesOffers';
 import setupBagLiftsPostRoute from './src/routes/formSubmissionRoutes/bagsLift';
 import setupRewardsRedemptionPostRoute from './src/routes/formSubmissionRoutes/rewardsRedemption';
+import setupKycSubmissionsPostRoute from './src/routes/formSubmissionRoutes/kycSubmission';
+import setupRewardsPostRoute from './src/routes/formSubmissionRoutes/rewards';
 
 
 // --- Import UPDATE (PATCH) route setups ---
@@ -90,6 +94,10 @@ import setupTsoMeetingsPatchRoutes from './src/routes/updateRoutes/tsoMeetings';
 import setupSalesOrdersPatchRoutes from './src/routes/updateRoutes/salesorder';
 import setupMasonPcSidePatchRoutes from './src/routes/updateRoutes/masonpcSide';
 import setupSchemesOffersPatchRoutes from './src/routes/updateRoutes/schemesOffers';
+import setupKycSubmissionsPatchRoute from './src/routes/updateRoutes/kycSubmission';
+import setupRewardsPatchRoute from './src/routes/updateRoutes/rewards';
+import setupRewardsRedemptionPatchRoute from './src/routes/updateRoutes/rewardsRedemption';
+import setupBagLiftsPatchRoute from './src/routes/updateRoutes/bagsLift';
 
 // --- Import GEO TRACKING route setups ---
 import setupGeoTrackingRoutes from './src/routes/geoTrackingRoutes/geoTracking';
@@ -176,6 +184,8 @@ setupMasonsPcSideRoutes(app);
 setupSchemesOffersRoutes(app);
 setupBagLiftsGetRoutes(app);
 setupPointsLedgerGetRoutes(app);
+setupRewardsGetRoutes(app);
+setupRewardsRedemptionGetRoutes(app);
 
 
 // POST Endpoints
@@ -201,6 +211,8 @@ setupMasonOnSchemePostRoutes(app);
 setupMasonPcSidePostRoutes(app);
 setupSchemesOffersPostRoutes(app);
 setupRewardCategoriesGetRoutes(app);
+setupKycSubmissionsPostRoute(app);
+setupRewardsPostRoute(app);
 
 // DELETE Endpoints
 setupDealersDeleteRoutes(app);           // DELETE /api/dealers/*
@@ -235,6 +247,10 @@ setupMasonPcSidePatchRoutes(app);
 setupSchemesOffersPatchRoutes(app);
 setupBagLiftsPostRoute(app);
 setupRewardsRedemptionPostRoute(app);
+setupKycSubmissionsPatchRoute(app);
+setupRewardsPatchRoute(app);
+setupRewardsRedemptionPatchRoute(app);
+setupBagLiftsPatchRoute(app);
 
 // ---------- GEO TRACKING SETUP--------
 setupGeoTrackingRoutes(app);
