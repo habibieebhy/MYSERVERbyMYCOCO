@@ -1,3 +1,5 @@
 node_modules
 node_modules/
 .env
+count:0
+count:*

@@ -34,10 +34,11 @@ const userPublicSelect = {
   reportsToId: users.reportsToId,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
-  // --- ADDED MISSING FIELDS ---
   workosUserId: users.workosUserId,
   inviteToken: users.inviteToken,
   noOfPJP: users.noOfPJP,
+  isTechnicalRole: users.isTechnicalRole,
+  techLoginId: users.techLoginId,
 };
 
 function createAutoCRUD(app: Express, config: {

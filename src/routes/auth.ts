@@ -30,14 +30,14 @@ const verifyToken = (req: Request, res: Response, next: NextFunction) => {
   }
 
   if (!process.env.JWT_SECRET) {
-     console.error("JWT_SECRET is not defined. Cannot verify token.");
-     return res.status(500).json({ error: "Server configuration error" });
+    console.error("JWT_SECRET is not defined. Cannot verify token.");
+    return res.status(500).json({ error: "Server configuration error" });
   }
 
   // --- (FIX) ---
   // Changed 'jwt.verify' to just 'verify'
   verify(token, process.env.JWT_SECRET, (err: any, user: any) => {
-  // --- (END FIX) ---
+    // --- (END FIX) ---
     if (err) {
       console.error("JWT Verification Error:", err.message);
       // Your app expects a 403 for this
@@ -51,7 +51,7 @@ const verifyToken = (req: Request, res: Response, next: NextFunction) => {
 
 
 export default function setupAuthRoutes(app: Express) {
-  
+
   // Login endpoint - UPDATED
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     try {
@@ -74,16 +74,37 @@ export default function setupAuthRoutes(app: Express) {
           status: users.status,
           hashedPassword: users.hashedPassword, // This column holds plain text
           role: users.role,
+          isTechnicalRole: users.isTechnicalRole,
+          salesmanLoginId: users.salesmanLoginId,
+          techLoginId: users.techLoginId,
+          techHashedPassword: users.techHashedPassword,
         })
         .from(users)
-        .where(or(eq(users.salesmanLoginId, loginId), eq(users.email, loginId)))
+        .where(or(eq(users.salesmanLoginId, loginId), eq(users.email, loginId), eq(users.techLoginId, loginId)))
         .limit(1);
 
       if (!row) return res.status(401).json({ error: "Invalid credentials" });
       if (row.status !== "active") return res.status(401).json({ error: "Account is not active" });
 
-      // --- Plain-text password check (as requested) ---
-      if (!row.hashedPassword || row.hashedPassword !== password) {
+      let isAuthenticated = false;
+
+      // 1. Check Primary Login (Salesman ID or Email ID)
+      const primaryPasswordMatches = row.hashedPassword && row.hashedPassword === password;
+      if (primaryPasswordMatches) {
+        isAuthenticated = true;
+      }
+      
+      // 2. Check Technical Login (Tech ID) - Only check if ID matches tech ID
+      const technicalPasswordMatches = row.techHashedPassword && row.techHashedPassword === password;
+      
+      // Technical login is valid if the ID used was the tech ID AND passwords match AND user is flagged technical
+      const isTechLoginValid = (row.techLoginId === loginId) && technicalPasswordMatches && row.isTechnicalRole;
+
+      if (isTechLoginValid) {
+        isAuthenticated = true;
+      }
+
+      if (!isAuthenticated) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
@@ -92,15 +113,15 @@ export default function setupAuthRoutes(app: Express) {
       // --- (FIX) ---
       // Changed 'jwt.sign' to just 'sign'
       const token = sign(
-      // --- (END FIX) ---
-        payload, 
-        process.env.JWT_SECRET, 
+        // --- (END FIX) ---
+        payload,
+        process.env.JWT_SECRET,
         { expiresIn: '7d' }
       );
 
       // --- 6. SEND THE *EXACT* RESPONSE FLUTTER WANTS ---
       // Your app is hard-coded to look for "token" and "userId"
-      return res.json({ 
+      return res.json({
         token: token,
         userId: row.id // Your app parses this as an int
       });
@@ -119,7 +140,7 @@ export default function setupAuthRoutes(app: Express) {
       if (!userId || Number.isNaN(userId)) {
         return res.status(400).json({ error: "Invalid user id" });
       }
-      
+
       const tokenUser = (req as any).user;
       if (tokenUser.id !== userId) {
         return res.status(403).json({ error: "Forbidden: You cannot access this user's profile" });
@@ -141,6 +162,9 @@ export default function setupAuthRoutes(app: Express) {
           salesmanLoginId: users.salesmanLoginId,
           status: users.status,
           reportsToId: users.reportsToId,
+          isTechnicalRole: users.isTechnicalRole,
+          techLoginId: users.techLoginId,
+          noOfPJP: users.noOfPJP,
         })
         .from(users)
         .leftJoin(companies, eq(companies.id, users.companyId))
@@ -165,11 +189,14 @@ export default function setupAuthRoutes(app: Express) {
         salesmanLoginId: row.salesmanLoginId ?? null,
         status: row.status,
         reportsToId: row.reportsToId ?? null,
+        isTechnicalRole: row.isTechnicalRole ?? false,
+        techLoginId: row.techLoginId ?? null,
+        noOfPJP: row.noOfPJP ?? null,
         company: row.companyId
           ? { id: row.companyId, companyName: row.companyName ?? "" }
           : null,
       };
-      
+
       // --- SEND THE *EXACT* RESPONSE FLUTTER WANTS ---
       // Your app is hard-coded to look for a "data" key
       res.json({ data: toJsonSafe(userPayload) });
