@@ -32,6 +32,7 @@ import setupPointsLedgerGetRoutes from './src/routes/dataFetchingRoutes/pointsLe
 import setupRewardCategoriesGetRoutes from './src/routes/dataFetchingRoutes/rewardCategories';
 import setupRewardsGetRoutes from './src/routes/dataFetchingRoutes/rewards';
 import setupRewardsRedemptionGetRoutes from './src/routes/dataFetchingRoutes/rewardsRedemption';
+import setupKycSubmissionsRoutes from './src/routes/dataFetchingRoutes/kycSubmissions';
 
 // Data Sync UPSERT
 import setupDealerSyncRoutes from './src/routes/dataSync/dealer';
@@ -186,6 +187,7 @@ setupBagLiftsGetRoutes(app);
 setupPointsLedgerGetRoutes(app);
 setupRewardsGetRoutes(app);
 setupRewardsRedemptionGetRoutes(app);
+setupKycSubmissionsRoutes(app);
 
 
 // POST Endpoints
