@@ -8,36 +8,70 @@ import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 
+// --- IMPORT CORE CALCULATION LOGIC ---
+import { calculateExtraBonusPoints, checkReferralBonusTrigger } from '../../utils/pointsCalcLogic';
+// --- END IMPORT ---
+
+// --- TSO AUTH IMPORT ---
+import { tsoAuth } from '../../middleware/tsoAuth';
+// ---
+
+// --- Define CustomRequest to access req.auth ---
+// This interface matches the user details added by your requireAuth middleware
+interface CustomRequest extends Request {
+    auth?: {
+        sub: string; // User ID from 'users' table
+        role: string;
+        phone: string;
+        kyc: string;
+    };
+}
+// ---
+
 // Zod schema for TSO approval/rejection fields.
 const bagLiftApprovalSchema = z.object({
   status: z.enum(['approved', 'rejected', 'pending']),
-  // In a real app, this should come from req.user.id (auth middleware)
-  approvedBy: z.coerce.number().int().positive().optional(), 
   memo: z.string().max(500).optional(),
+  // 'approvedBy' was removed. It will be taken from the authenticated user's token (req.auth.sub).
 }).strict();
 
 export default function setupBagLiftsPatchRoute(app: Express) {
   
-  app.patch('/api/bag-lifts/:id', async (req: Request, res: Response) => {
+  // --- TSO AUTH ADDED TO THE ROUTE ---
+  app.patch('/api/bag-lifts/:id', tsoAuth, async (req: CustomRequest, res: Response) => {
     const tableName = 'Bag Lift';
     try {
       const { id } = req.params;
+
+      // 1. Get Authenticated User ID (from requireAuth/tsoAuth middleware)
+      // The tsoAuth middleware has already verified this user is authorized to approve.
+      // --- REDUNDANT CHECK REMOVED ---
+      // if (!req.auth || !req.auth.sub) { ... }
       
-      // 1. Validate incoming data
+      const authenticatedUserId = parseInt(req.auth!.sub, 10); // Use non-null assertion
+      
+      if (isNaN(authenticatedUserId)) {
+        // This check is still valid in case the token 'sub' is somehow not a number
+        return res.status(400).json({ success: false, error: "Invalid user ID in auth token." });
+      }
+      
+      // 2. Validate incoming data
       const input = bagLiftApprovalSchema.parse(req.body);
 
-      // 2. Find existing record
+      // 3. Find existing record (Bag Lift details)
       const [existingRecord] = await db.select().from(bagLifts).where(eq(bagLifts.id, id)).limit(1);
       if (!existingRecord) {
         return res.status(404).json({ error: `${tableName} with ID '${id}' not found.` });
       }
       
-      const { status, approvedBy, memo } = input;
+      const { status, memo } = input; // 'approvedBy' is no longer here
       const currentStatus = existingRecord.status;
       const masonId = existingRecord.masonId;
-      const points = existingRecord.pointsCredited;
+      
+      // FIX 1: Apply non-null assertion since pointsCredited must exist on a submitted record
+      const points = existingRecord.pointsCredited!; // Main points (Base + Bonanza)
 
-      // 3. Logic check to prevent double points or approval of wrong status
+      // 4. Logic check to prevent double points or approval of wrong status
       if (status === currentStatus) {
          return res.status(400).json({ success: false, error: `Status is already '${currentStatus}'.` });
       }
@@ -46,94 +80,156 @@ export default function setupBagLiftsPatchRoute(app: Express) {
       }
 
       // --- Transactional Update ---
-      // Fix 1: The transaction returns an array of updated records, so we wrap the single record we get in an array.
-      const [updatedBagLift] = await db.transaction(async (tx) => {
+      // The transaction ensures all financial and cumulative logic is executed atomically.
+      const updatedBagLift = await db.transaction(async (tx) => {
         
-        // 3.1. Approving a Pending/New Lift (Credit Points)
+        // --- 5.1. Approving a Pending/New Lift (Credit Points and Bonuses) ---
         if (status === 'approved' && currentStatus === 'pending') {
             
+            // 1. Get Mason's current state BEFORE credit for bonus calculation
+            const [masonBeforeCredit] = await tx.select()
+                .from(masonPcSide)
+                .where(eq(masonPcSide.id, masonId))
+                .limit(1);
+            
+            if (!masonBeforeCredit) {
+                // If Mason doesn't exist, the transaction must fail
+                tx.rollback();
+                throw new Error(`Mason ID ${masonId} not found.`);
+            }
+
             // A. Update Bag Lift Record
             const [updated] = await tx.update(bagLifts)
               .set({
                   status: 'approved',
-                  approvedBy: approvedBy ?? null,
+                  approvedBy: authenticatedUserId, // <-- Use the ID from auth
                   approvedAt: new Date(),
-                  // FIX 3: Removed 'updatedAt' as it's not in the bagLifts schema
               })
               .where(eq(bagLifts.id, id))
               .returning();
               
-            // B. Create Points Ledger Entry (Credit)
+            // B. Create Points Ledger Entry (Main Credit: Base + Bonanza)
             await tx.insert(pointsLedger)
                 .values({
                     masonId: masonId,
                     sourceType: 'bag_lift',
-                    sourceId: updated.id, // 'updated' is the single object due to inner destructuring
+                    sourceId: updated.id, 
                     points: points, 
-                    memo: memo || `Credit for ${updated.bagCount} bags (approved by TSO)`,
+                    memo: memo || `Credit for ${updated.bagCount} bags (Base+Bonanza).`,
                 })
                 .returning();
             
-            // C. Update Mason's Balance
+            // C. Update Mason's Balance and Bags Lifted (Main Credit)
+            // Note: We use atomic operations here to update the total bags/points.
             await tx.update(masonPcSide)
               .set({
-                  pointsBalance: sql`${masonPcSide.pointsBalance} + ${points}`
+                  pointsBalance: sql`${masonPcSide.pointsBalance} + ${points}`,
+                  bagsLifted: sql`${masonPcSide.bagsLifted} + ${updated.bagCount}`,
               })
               .where(eq(masonPcSide.id, masonId));
 
-            return [updated]; // Fix 1: Wrap single object in array
+            // --- D. Extra Bonus Logic (Policy Rule 12 & 13) ---
+            const oldTotalBags = masonBeforeCredit.bagsLifted ?? 0;
+            const currentLiftBags = updated.bagCount;
+            const extraBonus = calculateExtraBonusPoints(oldTotalBags, currentLiftBags);
+
+            if (extraBonus > 0) {
+                // Insert ledger entry for the Extra Bonus
+                await tx.insert(pointsLedger).values({
+                    masonId: masonId,
+                    points: extraBonus,
+                    sourceType: 'adjustment', // Policy Rule 13 uses "adjustment" type
+                    memo: `Extra Bonus: ${extraBonus} points for crossing bag slab.`,
+                });
+                
+                // Update Mason's points balance atomically with the extra bonus
+                await tx.update(masonPcSide)
+                    .set({
+                        pointsBalance: sql`${masonPcSide.pointsBalance} + ${extraBonus}`,
+                    })
+                    .where(eq(masonPcSide.id, masonId));
+            }
+            
+            // --- E. Referral Bonus Logic (Policy Rule 5 & 6) ---
+            if (masonBeforeCredit.referredByUser) {
+                const referrerId = masonBeforeCredit.referredByUser;
+                const referralPoints = checkReferralBonusTrigger(oldTotalBags, currentLiftBags);
+
+                if (referralPoints > 0) {
+                    
+                    // Insert ledger entry for the referrer (not the current Mason)
+                    await tx.insert(pointsLedger).values({
+                        masonId: referrerId,
+                        points: referralPoints,
+                        sourceType: 'referral_bonus', 
+                        memo: `Referral bonus for Mason ${masonId} hitting 200 bags.`,
+                    });
+
+                    // Update the referrer's points balance atomically
+                    await tx.update(masonPcSide)
+                        .set({
+                            pointsBalance: sql`${masonPcSide.pointsBalance} + ${referralPoints}`,
+                        })
+                        .where(eq(masonPcSide.id, referrerId));
+                }
+            }
+
+            return updated;
         } 
         
-        // 3.2. Rejecting an Approved Lift (Unwind/Debit Points)
+        // 5.2. Rejecting an Approved Lift (Unwind/Debit Points and Bags)
         else if (status === 'rejected' && currentStatus === 'approved') {
             
             // A. Update Bag Lift Record
             const [updated] = await tx.update(bagLifts)
                 .set({
                     status: 'rejected',
-                    // FIX 3: Removed 'updatedAt' as it's not in the bagLifts schema
+                    // Note: We keep the original 'approvedBy' ID to know who approved it,
+                    // but we could nullify it if business logic required.
+                    // approvedBy: null, 
                 })
                 .where(eq(bagLifts.id, id))
                 .returning();
-                
-            // B. Create Points Ledger Entry (Debit to reverse)
+            
+            // B. Create Points Ledger Entry (Debit to reverse main points)
             await tx.insert(pointsLedger)
                 .values({
                     masonId: masonId,
                     sourceType: 'adjustment', 
                     sourceId: randomUUID(), // New UUID for the adjustment record
                     points: -points, // Negative points for debit
-                    memo: memo || `Debit adjustment: Bag Lift ${id} rejected.`,
+                    memo: memo || `Debit adjustment: Bag Lift ${id} rejected by User ${authenticatedUserId}. Reversing main points.`,
                 })
                 .returning();
                 
-            // C. Update Mason's Balance (Deduct points)
+            // C. Update Mason's Balance (Deduct points AND bags lifted)
             await tx.update(masonPcSide)
                 .set({
-                    pointsBalance: sql`${masonPcSide.pointsBalance} - ${points}`
+                    pointsBalance: sql`${masonPcSide.pointsBalance} - ${points}`,
+                    // FIX 2: Apply non-null assertion to existingRecord.bagCount
+                    bagsLifted: sql`${masonPcSide.bagsLifted} - ${existingRecord.bagCount!}`, 
                 })
                 .where(eq(masonPcSide.id, masonId));
 
-            return [updated]; // Fix 1: Wrap single object in array
+            return updated;
         }
 
-        // 3.3. Simple Status Update (e.g., pending -> rejected, no points change)
+        // 5.3. Simple Status Update (e.g., pending -> rejected, no points change)
         else {
             const [updated] = await tx.update(bagLifts)
-                .set({ status: status }) // FIX 3: Removed 'updatedAt'
+                .set({ status: status })
                 .where(eq(bagLifts.id, id))
                 .returning();
-            return [updated]; // Fix 1: Wrap single object in array
+            return updated;
         }
       });
 
 
-      // 4. Return success
+      // 6. Return success
       res.json({
         success: true,
-        // FIX 2: updatedBagLift is the single object, remove the [0] index.
         message: `Bag Lift status updated to '${updatedBagLift.status}' successfully.`,
-        data: updatedBagLift, // FIX 2: updatedBagLift is the single object.
+        data: updatedBagLift,
       });
 
     } catch (error: any) {
@@ -149,5 +245,5 @@ export default function setupBagLiftsPatchRoute(app: Express) {
     }
   });
 
-  console.log('✅ Bag Lifts PATCH (Approval) endpoint setup complete');
+  console.log('✅ Bag Lifts PATCH (Approval) endpoint setup complete (Now protected by tsoAuth middleware)');
 }

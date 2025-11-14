@@ -1,9 +1,11 @@
 // src/routes/formSubmissionRoutes/masonpcSide.ts
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
-import { masonPcSide } from '../../db/schema';
+import { masonPcSide, pointsLedger } from '../../db/schema'; // <<<--- pointsLedger imported
 import { z } from 'zod';
-import { InferInsertModel } from 'drizzle-orm'; 
+import { InferInsertModel, eq, sql } from 'drizzle-orm'; 
+import { randomUUID } from 'crypto'; // For generating ledger ID
+import { calculateJoiningBonusPoints } from '../../utils/pointsCalcLogic'; // <<<--- IMPORTED NEW LOGIC
 
 // -------- Helpers (from addDealer.ts) --------
 
@@ -35,14 +37,13 @@ const insertMasonPcSideSchema = z.object({
   // UPDATED: Field renamed from verificationStatus to kycStatus
   kycStatus: strOrNull, 
   bagsLifted: intOrNull,
-  // UPDATED: Field renamed from pointsGained to pointsBalance
-  pointsBalance: intOrNull,
+  // pointsBalance is removed from the POST body as it's set by the server
   isReferred: z.boolean().nullable().optional(),
   referredByUser: strOrNull,
   referredToUser: strOrNull,
   dealerId: strOrNull, // Will be validated by DB foreign key
   userId: intOrNull,    // Will be validated by DB foreign key
-}).strict(); // Use .strict() to catch any extra fields
+}).strict(); 
 
 type NewMason = InferInsertModel<typeof masonPcSide>;
 
@@ -50,46 +51,84 @@ export default function setupMasonPcSidePostRoutes(app: Express) {
   
   app.post('/api/masons', async (req: Request, res: Response) => {
     const tableName = 'Mason';
+    const joiningPoints = calculateJoiningBonusPoints(); // Calculate points once
+    
     try {
       // 1. Validate and coerce the request body
       const validated = insertMasonPcSideSchema.parse(req.body);
+      const generatedMasonId = randomUUID(); // Generate Mason ID now
+      
+      let newRecord;
+      let ledgerEntry;
 
-      // 2. Map validated data to the database schema
-      const insertData = {
-        name: validated.name,
-        phoneNumber: validated.phoneNumber,
-        kycDocumentName: validated.kycDocumentName ?? null,
-        kycDocumentIdNum: validated.kycDocumentIdNum ?? null,
-        // UPDATED: Mapping kycStatus
-        kycStatus: validated.kycStatus ?? null, 
-        bagsLifted: validated.bagsLifted ?? null,
-        // UPDATED: Mapping pointsBalance
-        pointsBalance: validated.pointsBalance ?? null,
-        isReferred: validated.isReferred ?? null,
-        referredByUser: validated.referredByUser ?? null,
-        referredToUser: validated.referredToUser ?? null,
-        dealerId: validated.dealerId ?? null,
-        userId: validated.userId ?? null,
-      } as NewMason;
+      // --- 2. Start Transaction for Atomic Creation and Point Credit ---
+      const transactionResult = await db.transaction(async (tx) => {
+        
+        // A. Map validated data to the database schema
+        const insertData: NewMason = {
+          id: generatedMasonId, // Use the generated ID
+          name: validated.name,
+          phoneNumber: validated.phoneNumber,
+          kycDocumentName: validated.kycDocumentName ?? null,
+          kycDocumentIdNum: validated.kycDocumentIdNum ?? null,
+          kycStatus: validated.kycStatus ?? 'pending', // Default to pending if not provided
+          bagsLifted: validated.bagsLifted ?? 0,
+          pointsBalance: joiningPoints, // <<<--- SET INITIAL BALANCE
+          isReferred: validated.isReferred ?? null,
+          referredByUser: validated.referredByUser ?? null,
+          referredToUser: validated.referredToUser ?? null,
+          dealerId: validated.dealerId ?? null,
+          userId: validated.userId ?? null,
+        };
 
-      // 3. Insert the new record
-      const [newRecord] = await db
-        .insert(masonPcSide)
-        .values(insertData)
-        .returning();
+        // B. Insert the new Mason record
+        const [mason] = await tx
+          .insert(masonPcSide)
+          .values(insertData)
+          .returning();
+          
+        if (!mason) {
+          tx.rollback();
+          throw new Error('Failed to create new mason record.');
+        }
 
-      // 4. Send success response
+        // C. Create Points Ledger Entry for Joining Bonus
+        const [ledger] = await tx.insert(pointsLedger)
+          .values({
+            id: randomUUID(),
+            masonId: generatedMasonId,
+            sourceType: 'adjustment', // Use 'adjustment' or similar for one-time bonuses
+            sourceId: generatedMasonId, // Link ledger entry to the newly created Mason ID
+            points: joiningPoints,
+            memo: 'Credit for one-time joining bonus',
+          })
+          .returning();
+          
+        if (!ledger) {
+          tx.rollback();
+          throw new Error('Failed to create joining bonus ledger entry.');
+        }
+
+        return { mason, ledger };
+      });
+      // --- End Transaction ---
+
+      newRecord = transactionResult.mason;
+      ledgerEntry = transactionResult.ledger;
+
+      // 3. Send success response
       return res.status(201).json({
         success: true,
-        message: `${tableName} created successfully`,
+        message: `${tableName} created successfully. Joining bonus of ${joiningPoints} points credited.`,
         data: newRecord,
+        ledgerEntry: ledgerEntry,
       });
 
     } catch (err: any) {
-      // 5. Handle errors
+      // 4. Handle errors
       console.error(`Create ${tableName} error:`, {
         message: err?.message,
-        code: err?.code, // SQLSTATE (e.g., 23503 for FK)
+        code: err?.code,
         constraint: err?.constraint,
         detail: err?.detail,
       });
@@ -117,7 +156,7 @@ export default function setupMasonPcSidePostRoutes(app: Express) {
           field = 'userId';
         }
         
-        return res.status(400).json({ // 400 Bad Request
+        return res.status(400).json({ 
           success: false, 
           error: `Foreign key violation: The specified ${field} does not exist.`,
           details: err?.detail ?? err?.message 
@@ -133,5 +172,5 @@ export default function setupMasonPcSidePostRoutes(app: Express) {
     }
   });
 
-  console.log('✅ Masons POST endpoint setup complete');
+  console.log('✅ Masons POST endpoint setup complete (with Joining Bonus transaction)');
 }

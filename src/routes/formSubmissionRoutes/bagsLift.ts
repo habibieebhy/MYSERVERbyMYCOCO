@@ -1,29 +1,33 @@
 // src/routes/formSubmissionRoutes/bagsLift.ts
+
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
-import { bagLifts, insertBagLiftSchema } from '../../db/schema'; // Removed pointsLedger and masonPcSide imports (no longer needed here)
+import { bagLifts, insertBagLiftSchema } from '../../db/schema';
 import { z } from 'zod';
 import { randomUUID } from 'crypto'; 
-import { InferInsertModel } from 'drizzle-orm'; // Added InferInsertModel for better typing
+import { InferInsertModel } from 'drizzle-orm'; 
+
+// --- IMPORT CORE CALCULATION LOGIC ---
+import { calculateBaseAndBonanzaPoints } from '../../utils/pointsCalcLogic'; 
+// --- END IMPORT ---
 
 // Define the core BagLift type for use in the insert, excluding the memo that's not in the table
 type BagLiftInsert = InferInsertModel<typeof bagLifts>;
 
-/**
- * Zod schema for the Bag Lift data submission.
- */
 const bagLiftSubmissionSchema = insertBagLiftSchema.omit({
     id: true,
-    status: true, // Handled manually to ensure 'pending'
+    status: true,
     approvedBy: true, 
     approvedAt: true,
     createdAt: true, 
+    pointsCredited: true, // <<<--- SECURITY FIX: Client cannot submit points
 }).extend({
-    masonId: z.string().uuid({ message: 'A valid Mason ID (UUID) is required.' }),
+    // Renamed to 'masonId' for consistency, assuming it maps to masonPcSide.id
+    masonId: z.string().uuid({ message: 'A valid Mason ID (UUID) is required.' }), 
     dealerId: z.string().min(1, 'Dealer ID is required.'),
+    // We coerce to Date, but ensure it's still treated as a timestamp/date
     purchaseDate: z.string().transform(str => new Date(str)), 
     bagCount: z.number().int().positive('Bag count must be a positive integer.'),
-    pointsCredited: z.number().int().nonnegative('Points credited must be a non-negative integer.'),
     memo: z.string().max(500).optional(), // Note: Not inserted, but validated
 });
 
@@ -31,7 +35,7 @@ const bagLiftSubmissionSchema = insertBagLiftSchema.omit({
  * Sets up the POST route for the bag_lifts table.
  * * POST /api/bag-lifts
  * - Creates a new bag_lift record with status 'pending'.
- * - DOES NOT credit points. Points will be credited upon TSO approval via PATCH.
+ * - Calculates pointsCredited on the server using imported logic.
  */
 export default function setupBagLiftsPostRoute(app: Express) {
 
@@ -49,37 +53,42 @@ export default function setupBagLiftsPostRoute(app: Express) {
             }
 
             const validatedData = validationResult.data;
-            const { masonId, pointsCredited, ...bagLiftBody } = validatedData;
+            const { masonId, bagCount, purchaseDate, ...bagLiftBody } = validatedData;
+            
+            // --- 2. SERVER-SIDE POINT CALCULATION (SECURITY FIX) ---
+            // Now uses the imported, centralized logic
+            const calculatedPoints = calculateBaseAndBonanzaPoints(bagCount, purchaseDate);
+            // --- END CALCULATION ---
             
             const generatedBagLiftId = randomUUID();
             
-            // 2. Insert the Bag Lift record (Transaction removed as we only do one DB write now)
+            // 3. Prepare Insert Data
             const insertData: BagLiftInsert = {
-                ...(bagLiftBody as any), // Use as any to manage the Date/string coercion safely
+                ...(bagLiftBody as any), 
                 id: generatedBagLiftId, 
                 masonId: masonId, 
-                pointsCredited: pointsCredited,
-                status: 'pending', // ✅ FIX: Set status to PENDING
-                approvedBy: null, // Ensure these are null on initial submission
+                bagCount: bagCount,
+                purchaseDate: purchaseDate,
+                pointsCredited: calculatedPoints, // <<<--- Calculated on server via imported function
+                status: 'pending', 
+                approvedBy: null, 
                 approvedAt: null, 
             };
             
-            // Note: Since we are no longer updating ledger/balance, a transaction is not strictly required.
+            // 4. Insert the Bag Lift record
             const [newBagLift] = await db.insert(bagLifts)
                 .values(insertData)
                 .returning();
 
             if (!newBagLift) {
-                // If the insert failed for some reason (e.g., FK constraint), throw an error.
                 throw new Error('Failed to insert new bag lift record.');
             }
 
-            // 3. Send success response
+            // 5. Send success response
             res.status(201).json({ 
                 success: true, 
-                message: 'Bag Lift successfully submitted for TSO approval.', // ✅ UPDATED MESSAGE
+                message: `Bag Lift successfully submitted for TSO approval. Calculated points: ${newBagLift.pointsCredited}.`, 
                 data: newBagLift,
-                // Removed ledgerEntry from response as it's no longer created here
             });
 
         } catch (error: any) {
@@ -105,5 +114,5 @@ export default function setupBagLiftsPostRoute(app: Express) {
         }
     });
 
-    console.log('✅ Bag Lifts POST endpoint setup complete (Now defaults to PENDING status)');
+    console.log('✅ Bag Lifts POST endpoint setup complete (Now defaults to PENDING status and calculates points securely using centralized logic)');
 }

@@ -79,6 +79,7 @@ import setupBagLiftsPostRoute from './src/routes/formSubmissionRoutes/bagsLift';
 import setupRewardsRedemptionPostRoute from './src/routes/formSubmissionRoutes/rewardsRedemption';
 import setupKycSubmissionsPostRoute from './src/routes/formSubmissionRoutes/kycSubmission';
 import setupRewardsPostRoute from './src/routes/formSubmissionRoutes/rewards';
+import setupPointsLedgerPostRoutes from './src/routes/dataFetchingRoutes/pointsLedger';
 
 
 // --- Import UPDATE (PATCH) route setups ---
@@ -215,6 +216,7 @@ setupSchemesOffersPostRoutes(app);
 setupRewardCategoriesGetRoutes(app);
 setupKycSubmissionsPostRoute(app);
 setupRewardsPostRoute(app);
+setupPointsLedgerPostRoutes(app);
 
 // DELETE Endpoints
 setupDealersDeleteRoutes(app);           // DELETE /api/dealers/*

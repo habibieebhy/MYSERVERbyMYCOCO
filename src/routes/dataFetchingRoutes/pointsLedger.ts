@@ -1,27 +1,13 @@
-// src/routes/dataFetchingRoutes/pointsLedger.ts
-
+// server/src/routes/dataFetchingRoutes/pointsLedger.ts
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
 import { pointsLedger } from '../../db/schema'; // Import the table
 import { eq, and, desc, asc, SQL, gte, lte } from 'drizzle-orm';
 
-/**
- * Sets up GET routes for the points_ledger table.
- *
- * 1. GET /api/points-ledger
- * - Optional query params: ?limit=... & ?page=... & ?masonId=... & ?sourceType=...
- * - Date range: ?startDate=... & ?endDate=... (filters on createdAt)
- * - Returns a paginated and filtered list of all points ledger entries.
- *
- * 2. GET /api/points-ledger/:id
- * - Returns a single entry by its ID.
- *
- * 3. GET /api/points-ledger/mason/:masonId
- * - Returns all entries for a specific mason.
- *
- * 4. GET /api/points-ledger/source/:sourceId
- * - Returns all entries associated with a specific sourceId.
- */
+// --- TSO AUTH IMPORT ---
+import { tsoAuth } from '../../middleware/tsoAuth';
+// ---
+
 export default function setupPointsLedgerGetRoutes(app: Express) {
 
     // Helper to build WHERE clause for filtering
@@ -135,10 +121,12 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
 
 
     // 1. GET ALL (with pagination, filtering, and sorting)
-    app.get('/api/points-ledger', (req, res) => listHandler(req, res));
+    // --- TSO AUTH ADDED ---
+    app.get('/api/points-ledger', tsoAuth, (req, res) => listHandler(req, res));
 
     // 2. GET BY ID
-    app.get('/api/points-ledger/:id', async (req: Request, res: Response) => {
+    // --- TSO AUTH ADDED ---
+    app.get('/api/points-ledger/:id', tsoAuth, async (req: Request, res: Response) => {
         try {
             const { id } = req.params;
 
@@ -148,7 +136,7 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
                 .limit(1);
 
             if (!record) {
-                return res.status(404).json({ success: false, error: 'Points Ledger entry not found' });
+                return res.status(44).json({ success: false, error: 'Points Ledger entry not found' });
             }
 
             res.json({ success: true, data: record });
@@ -163,7 +151,8 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
     });
 
     // 3. GET BY MASON ID
-    app.get('/api/points-ledger/mason/:masonId', (req, res) => {
+    // --- TSO AUTH ADDED ---
+    app.get('/api/points-ledger/mason/:masonId', tsoAuth, (req, res) => {
         const { masonId } = req.params;
         if (!masonId) {
             return res.status(400).json({ success: false, error: 'Mason ID is required.' });
@@ -173,7 +162,8 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
     });
 
     // 4. GET BY SOURCE ID
-    app.get('/api/points-ledger/source/:sourceId', (req, res) => {
+    // --- TSO AUTH ADDED ---
+    app.get('/api/points-ledger/source/:sourceId', tsoAuth, (req, res) => {
         const { sourceId } = req.params;
         if (!sourceId) {
             return res.status(400).json({ success: false, error: 'Source ID is required.' });
@@ -183,5 +173,5 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
     });
 
 
-    console.log('✅ Points Ledger GET endpoints setup complete');
+    console.log('✅ Points Ledger GET endpoints setup complete (All routes protected by tsoAuth)');
 }
