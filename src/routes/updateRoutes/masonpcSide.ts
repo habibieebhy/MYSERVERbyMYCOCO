@@ -1,26 +1,14 @@
-// src/routes/updateRoutes/masonpcSide.ts
-import { Request, Response, Express, NextFunction } from 'express';
+import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
 import { masonPcSide } from '../../db/schema';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { InferInsertModel } from 'drizzle-orm'; 
-// Assuming requireAuth is imported from '../middleware/requireAuth'
-import { requireAuth } from '../../middleware/requireAuth'; 
 
-// Define the structure of the decoded JWT payload set by requireAuth
-interface MasonAuthPayload {
-  sub: string; // The mason ID (UUID)
-  role: string;
-  phone: string;
-  kyc: string;
-}
-
-
-// Fixed type definition: Update is a Partial of the Insert Model
+// Define the type for the update payload which Drizzle expects
 type UpdateMason = Partial<InferInsertModel<typeof masonPcSide>>;
 
-// -------- Helpers (unchanged) --------
+// -------- Helpers (No change) --------
 
 // empty string -> null for strings
 export const strOrNull = z.preprocess((val) => {
@@ -39,73 +27,71 @@ export const intOrNull = z.preprocess((val) => {
   return isNaN(n) ? null : n;
 }, z.number().int().nullable().optional());
 
-// -------- Input Schema (unchanged) --------
+// -------- Input Schema (No change) --------
 
-const masonUpdatableFieldsSchema = z.object({
-  name: z.string().min(1, "Name is required").optional(),
+const masonBaseSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  phoneNumber: z.string().min(1, "Phone number is required"),
   kycDocumentName: strOrNull,
   kycDocumentIdNum: strOrNull,
-  // Note: kycStatus/bagsLifted/pointsBalance are usually server-managed after submission
-  kycStatus: strOrNull, 
-  bagsLifted: intOrNull, 
-  pointsBalance: intOrNull, 
+  
+  kycStatus: strOrNull,         
+  pointsBalance: intOrNull,     
+
+  bagsLifted: intOrNull,
   isReferred: z.boolean().nullable().optional(),
   referredByUser: strOrNull,
   referredToUser: strOrNull,
   dealerId: strOrNull, 
   userId: intOrNull,    
+  firebaseUid: strOrNull,
 });
 
-const masonUpdateSchema = masonUpdatableFieldsSchema.partial().strict();
+const masonUpdateSchema = masonBaseSchema.partial().strict();
 
-// ❌ The custom middleware 'masonAuthMiddleware' is REMOVED
-// as we are now using the centralized 'requireAuth'.
+// --- ✅ FIX: Helper function to clean and type-cast the payload ---
+function cleanUpdatePayload(data: z.infer<typeof masonUpdateSchema>): UpdateMason {
+    const payload: UpdateMason = {};
+    for (const key in data) {
+        const value = data[key as keyof typeof data];
+        // Only include properties that are explicitly present (not undefined from Zod parsing)
+        if (value !== undefined) {
+            // Explicitly cast the value type to match Drizzle's expected type for update payload
+            (payload as any)[key] = value; 
+        }
+    }
+    return payload;
+}
+// --- ⬆️ End Helper ⬆️ ---
 
 
 export default function setupMasonPcSidePatchRoutes(app: Express) {
   
-  // PATCH /api/masons/:id - Now protected by the centralized requireAuth middleware
-  // We remove 'as any' from requireAuth, and use the base Request type for the handler.
-  app.patch('/api/masons/:id', requireAuth, async (req: Request, res: Response) => {
+  // PATCH /api/masons/:id
+  app.patch('/api/masons/:id', async (req: Request, res: Response) => {
     const tableName = 'Mason';
     try {
-      // 1. Type Assertion for Auth Payload
-      // We assert that the request object now contains the 'auth' property 
-      // added by the requireAuth middleware.
-      const authPayload = (req as any).auth as MasonAuthPayload;
-
-      // 2. Validate the ID from the URL
+      // 1. Validate the ID
       const { id } = req.params;
       if (!z.string().uuid().safeParse(id).success) {
         return res.status(400).json({ success: false, error: 'Invalid Mason ID format. Expected UUID.' });
       }
       
-      // 3. CRITICAL AUTHORIZATION CHECK: Token ID must match URL ID
-      // Retrieve the authenticated user's ID from the payload set by requireAuth
-      const authenticatedMasonId = authPayload.sub; 
-      
-      if (!authenticatedMasonId) {
-          // This case should be caught by requireAuth, but good for robustness
-          return res.status(401).json({ success: false, error: 'Authorization context missing.' });
-      }
-
-      if (id !== authenticatedMasonId) {
-          // Forbidden: User attempting to update another user's profile
-          return res.status(403).json({ success: false, error: 'Unauthorized to update this resource.' });
-      }
-      
-      // 4. Validate the incoming data against the partial schema
+      // 2. Validate the incoming data against the partial schema
       const validatedData = masonUpdateSchema.parse(req.body);
 
       // If the body is empty, there's nothing to update.
       if (Object.keys(validatedData).length === 0) {
         return res.status(400).json({
           success: false,
-          error: 'No valid fields to update were provided.',
+          error: 'No fields to update were provided.',
         });
       }
 
-      // 5. Check existence (optional, but robust)
+      // --- ✅ FIX: Clean the payload and assign Drizzle update type ---
+      const updatePayload: UpdateMason = cleanUpdatePayload(validatedData);
+      
+      // 3. Check if the mason exists before trying to update
       const [existingMason] = await db.select({ id: masonPcSide.id })
         .from(masonPcSide)
         .where(eq(masonPcSide.id, id))
@@ -118,12 +104,10 @@ export default function setupMasonPcSidePatchRoutes(app: Express) {
         });
       }
 
-      // 6. Perform the update
-      const updatePayload: UpdateMason = validatedData as UpdateMason;
-      
+      // 4. Perform the update
       const [updatedMason] = await db
         .update(masonPcSide)
-        .set(updatePayload)
+        .set(updatePayload) // Use the cleaned, correctly typed payload
         .where(eq(masonPcSide.id, id))
         .returning();
 
@@ -134,7 +118,7 @@ export default function setupMasonPcSidePatchRoutes(app: Express) {
       });
 
     } catch (err: any) {
-      // 7. Handle errors
+      // Handle validation errors from Zod
       if (err instanceof z.ZodError) {
         return res.status(400).json({
           success: false,
@@ -157,7 +141,7 @@ export default function setupMasonPcSidePatchRoutes(app: Express) {
           field = 'userId';
         }
         
-        return res.status(400).json({ 
+        return res.status(400).json({ // 400 Bad Request
           success: false, 
           error: `Foreign key violation: The specified ${field} does not exist.`,
           details: err?.detail ?? err?.message 
@@ -173,5 +157,5 @@ export default function setupMasonPcSidePatchRoutes(app: Express) {
     }
   });
 
-  console.log('✅ Masons PATCH endpoints setup complete (using requireAuth)');
+  console.log('✅ Masons PATCH endpoints setup complete');
 }

@@ -1,49 +1,25 @@
-// server/src/routes/authFirebase.ts
 import { Express, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { getAuth } from "firebase-admin/auth";
 import crypto from "crypto";
 import { db } from "../db/db";
-import { masonPcSide } from "../db/schema"; 
+import { masonPcSide } from "../db/schema";
 import { authSessions } from "../db/schema";
 import { eq } from "drizzle-orm";
-import { z } from "zod"; // ⬅️ Added Zod for request validation
 
 const JWT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
-// Zod schema for validating the incoming request body
-const firebaseAuthSchema = z.object({
-  idToken: z.string().min(1, "idToken required"),
-  // Include the fields required for the initial profile creation
-  name: z.string().min(1, "Name is required for new registration"), 
-}).strict();
+// Utility to verify the JWT and extract the payload
+const verifyJwt = (token: string) => {
+  return jwt.verify(token, process.env.JWT_SECRET!) as { sub: string, role: string, phone: string, kyc: string, iat: number, exp: number };
+};
 
 export default function setupAuthFirebaseRoutes(app: Express) {
   // POST /api/auth/firebase
   app.post("/api/auth/firebase", async (req: Request, res: Response) => {
-    
-    let validatedBody: z.infer<typeof firebaseAuthSchema>;
-
     try {
-      // 1. Validate incoming request body
-      validatedBody = firebaseAuthSchema.parse(req.body);
-    } catch (e) {
-      if (e instanceof z.ZodError) {
-        // Handle Zod validation errors
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Validation failed', 
-          details: e.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message,
-          })) 
-        });
-      }
-      return res.status(500).json({ success: false, error: "Internal server error during validation." });
-    }
-
-    try {
-      const { idToken, name } = validatedBody;
+      const { idToken } = req.body;
+      if (!idToken) return res.status(400).json({ success: false, error: "idToken required" });
 
       const decoded = await getAuth().verifyIdToken(idToken);
       const firebaseUid = decoded.uid;
@@ -52,18 +28,12 @@ export default function setupAuthFirebaseRoutes(app: Express) {
 
       // upsert mason by uid/phone
       let mason = (await db.select().from(masonPcSide).where(eq(masonPcSide.firebaseUid, firebaseUid)).limit(1))[0];
-      
-      let isNewMason = false;
-
       if (!mason) {
         mason = (await db.select().from(masonPcSide).where(eq(masonPcSide.phoneNumber, phone)).limit(1))[0];
-        
         if (!mason) {
-          // *** CREATION STEP ***
-          isNewMason = true;
           const created = await db.insert(masonPcSide).values({
             id: crypto.randomUUID(),
-            name: name, // ⬅️ Use the validated name from the request body
+            name: "New Contractor",
             phoneNumber: phone,
             firebaseUid,
             kycStatus: "none",
@@ -71,13 +41,7 @@ export default function setupAuthFirebaseRoutes(app: Express) {
           }).returning();
           mason = created[0];
         } else if (!mason.firebaseUid) {
-          // Existing phone record found, link it to the new Firebase UID and update name
-          await db.update(masonPcSide).set({ 
-            firebaseUid,
-            name: name // ⬅️ Update name on linking/registration completion
-          }).where(eq(masonPcSide.id, mason.id));
-          // Re-fetch the updated mason record
-          mason = (await db.select().from(masonPcSide).where(eq(masonPcSide.id, mason.id)).limit(1))[0];
+          await db.update(masonPcSide).set({ firebaseUid }).where(eq(masonPcSide.id, mason.id));
         }
       }
 
@@ -104,21 +68,53 @@ export default function setupAuthFirebaseRoutes(app: Express) {
         jwt: jwtToken,
         sessionToken,
         sessionExpiresAt: expiresAt,
-        mason: { 
-          id: mason.id, 
-          phoneNumber: mason.phoneNumber, 
-          name: mason.name, // ⬅️ Include name in response
-          kycStatus: mason.kycStatus, 
-          pointsBalance: mason.pointsBalance 
-        },
-        isNewUser: isNewMason // ⬅️ Indicate if this was a fresh creation
+        mason: { id: mason.id, phoneNumber: mason.phoneNumber, name: mason.name, kycStatus: mason.kycStatus, pointsBalance: mason.pointsBalance },
       });
     } catch (e) {
       console.error("auth/firebase error:", e);
-      // Catch token verification errors, network issues, etc.
-      return res.status(401).json({ success: false, error: "Authentication failed or Invalid Firebase token" });
+      return res.status(401).json({ success: false, error: "Invalid Firebase token" });
     }
   });
+
+  // --- NEW: GET /api/auth/validate (For Auto-Login) ---
+  app.get("/api/auth/validate", async (req: Request, res: Response) => {
+    const authHeader = req.header("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, error: "Authorization header missing or invalid" });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    try {
+      const decoded = verifyJwt(token);
+      const masonId = decoded.sub;
+
+      const [mason] = await db.select().from(masonPcSide).where(eq(masonPcSide.id, masonId)).limit(1);
+
+      if (!mason) {
+        return res.status(404).json({ success: false, error: "Mason not found" });
+      }
+
+      // Return the mason object needed by the client
+      return res.status(200).json({
+        success: true,
+        mason: { 
+          id: mason.id, 
+          firebaseUid: mason.firebaseUid,
+          phoneNumber: mason.phoneNumber, 
+          name: mason.name, 
+          kycStatus: mason.kycStatus, 
+          pointsBalance: mason.pointsBalance 
+        },
+      });
+
+    } catch (e) {
+      // JWT verification failed (e.g., token expired, wrong secret)
+      console.error("auth/validate error:", e);
+      return res.status(401).json({ success: false, error: "Invalid or expired token" });
+    }
+  });
+  // ---------------------------------------------------
 
   // POST /api/auth/logout (contractor): kill session
   app.post("/api/auth/logout", async (req: Request, res: Response) => {

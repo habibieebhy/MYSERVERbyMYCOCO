@@ -4,7 +4,8 @@
 import { Request, Response, Express } from 'express';
 import { db } from '../db/db';
 import { users, insertUserSchema } from '../db/schema';
-import { eq, and, desc, like, or, SQL } from 'drizzle-orm';
+// --- ✅ 1. IMPORT 'ilike' ---
+import { eq, and, desc, like, or, SQL, ilike } from 'drizzle-orm';
 import { z, ZodType } from 'zod';
 
 // Helper function to safely convert BigInt to JSON
@@ -41,6 +42,14 @@ const userPublicSelect = {
   techLoginId: users.techLoginId,
 };
 
+function parseBooleanQuery(value?: string | string[] | undefined): boolean | undefined {
+  if (typeof value === 'undefined') return undefined;
+  const s = String(value).trim().toLowerCase();
+  if (s === 'true' || s === '1') return true;
+  if (s === 'false' || s === '0') return false;
+  return undefined;
+}
+
 function createAutoCRUD(app: Express, config: {
   endpoint: string,
   table: any,
@@ -60,22 +69,34 @@ function createAutoCRUD(app: Express, config: {
    * - status (string)
    * - companyId (number)
    * - reportsToId (number)
-   * - search (string) - Searches email, firstName, and lastName
+   * - search (string) - Searches email, firstName, and lastName (case-insensitive)
+   * - isTechnical / isTechnicalRole (boolean) - Filter by the isTechnicalRole column
    */
   app.get(`/api/${endpoint}`, async (req: Request, res: Response) => {
     try {
-      const { limit = '50', role, region, area, status, companyId, reportsToId, search } = req.query;
+      const {
+        limit = '50',
+        role,
+        region,
+        area,
+        status,
+        companyId,
+        reportsToId,
+        search,
+        isTechnical,
+        isTechnicalRole,
+      } = req.query;
 
       let conditions: SQL[] = [];
 
-      // Search by name or email (partial match)
+      // Search by name or email (partial, case-insensitive match)
       if (search) {
-        const searchPattern = `%${String(search).toLowerCase()}%`;
+        const searchPattern = `%${String(search).trim()}%`;
         conditions.push(
           or(
-            like(table.email, searchPattern),
-            like(table.firstName, searchPattern),
-            like(table.lastName, searchPattern)
+            ilike(table.email, searchPattern),
+            ilike(table.firstName, searchPattern),
+            ilike(table.lastName, searchPattern)
           )!
         );
       }
@@ -95,6 +116,14 @@ function createAutoCRUD(app: Express, config: {
         const id = parseInt(reportsToId as string, 10);
         if (!isNaN(id)) conditions.push(eq(table.reportsToId, id));
       }
+
+      // --- New: filter by isTechnicalRole boolean column ---
+      // Accepts isTechnical=true/false or isTechnicalRole=true/false or 1/0
+      const parsedIsTech = parseBooleanQuery(isTechnical as any) ?? parseBooleanQuery(isTechnicalRole as any);
+      if (typeof parsedIsTech === 'boolean') {
+        conditions.push(eq(table.isTechnicalRole, parsedIsTech));
+      }
+      // --- End new filter ---
 
       // 1. Create a base query that selects our consistent public fields.
       const baseQuery = db.select(userPublicSelect).from(table);
@@ -126,6 +155,7 @@ function createAutoCRUD(app: Express, config: {
   /**
    * GET /api/users/company/:companyId
    * Fetches users for a specific company, with optional sub-filtering.
+   * Accepts same filters as /api/users, including isTechnical/isTechnicalRole.
    */
   app.get(`/api/${endpoint}/company/:companyId`, async (req: Request, res: Response) => {
     try {
@@ -134,7 +164,7 @@ function createAutoCRUD(app: Express, config: {
         return res.status(400).json({ success: false, error: 'Invalid company id' });
       }
       
-      const { limit = '50', role, region, area, status } = req.query;
+      const { limit = '50', role, region, area, status, isTechnical, isTechnicalRole } = req.query;
 
       // Start with the mandatory companyId condition
       let conditions: SQL[] = [eq(table.companyId, companyId)];
@@ -144,6 +174,13 @@ function createAutoCRUD(app: Express, config: {
       if (region) conditions.push(eq(table.region, region as string));
       if (area) conditions.push(eq(table.area, area as string));
       if (status) conditions.push(eq(table.status, status as string));
+
+      // --- New: filter by isTechnicalRole boolean column in company route ---
+      const parsedIsTech = parseBooleanQuery(isTechnical as any) ?? parseBooleanQuery(isTechnicalRole as any);
+      if (typeof parsedIsTech === 'boolean') {
+        conditions.push(eq(table.isTechnicalRole, parsedIsTech));
+      }
+      // --- End new filter ---
 
       const records = await db.select(userPublicSelect)
         .from(table)
