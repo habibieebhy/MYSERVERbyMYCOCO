@@ -20,7 +20,8 @@ const bagLiftSubmissionSchema = insertBagLiftSchema.omit({
     approvedBy: true, 
     approvedAt: true,
     createdAt: true, 
-    pointsCredited: true, // <<<--- SECURITY FIX: Client cannot submit points
+    pointsCredited: true,
+    imageUrl: true,
 }).extend({
     // Renamed to 'masonId' for consistency, assuming it maps to masonPcSide.id
     masonId: z.string().uuid({ message: 'A valid Mason ID (UUID) is required.' }), 
@@ -29,6 +30,7 @@ const bagLiftSubmissionSchema = insertBagLiftSchema.omit({
     purchaseDate: z.string().transform(str => new Date(str)), 
     bagCount: z.number().int().positive('Bag count must be a positive integer.'),
     memo: z.string().max(500).optional(), // Note: Not inserted, but validated
+    imageUrl: z.string().url({ message: "Invalid image URL" }).optional(),
 });
 
 /**
@@ -53,7 +55,7 @@ export default function setupBagLiftsPostRoute(app: Express) {
             }
 
             const validatedData = validationResult.data;
-            const { masonId, bagCount, purchaseDate, ...bagLiftBody } = validatedData;
+            const { masonId, bagCount, purchaseDate, imageUrl, ...bagLiftBody } = validatedData;
             
             // --- 2. SERVER-SIDE POINT CALCULATION (SECURITY FIX) ---
             // Now uses the imported, centralized logic
@@ -69,6 +71,7 @@ export default function setupBagLiftsPostRoute(app: Express) {
                 masonId: masonId, 
                 bagCount: bagCount,
                 purchaseDate: purchaseDate,
+                imageUrl: imageUrl,
                 pointsCredited: calculatedPoints, // <<<--- Calculated on server via imported function
                 status: 'pending', 
                 approvedBy: null, 

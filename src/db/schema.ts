@@ -722,7 +722,7 @@ export const bagLifts = pgTable("bag_lifts", {
   bagCount: integer("bag_count").notNull(),
   pointsCredited: integer("points_credited").notNull(), 
   status: varchar("status", { length: 20 }).notNull().default("pending"),
-  // ADDED onDelete: "set null" for Prisma parity
+  imageUrl: text("image_url"),
   approvedBy: integer("approved_by").references(() => users.id, { onDelete: "set null" }), 
   approvedAt: timestamp("approved_at", { withTimezone: true, precision: 6 }),
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
