@@ -24,7 +24,7 @@ const bagLiftSubmissionSchema = insertBagLiftSchema.omit({
 }).extend({
     // Renamed to 'masonId' for consistency, assuming it maps to masonPcSide.id
     masonId: z.string().uuid({ message: 'A valid Mason ID (UUID) is required.' }), 
-    dealerId: z.string().min(1, 'Dealer ID is required.'),
+    //dealerId: z.string().min(1, 'Dealer ID is required.'),
     // We coerce to Date, but ensure it's still treated as a timestamp/date
     purchaseDate: z.string().transform(str => new Date(str)), 
     bagCount: z.number().int().positive('Bag count must be a positive integer.'),
