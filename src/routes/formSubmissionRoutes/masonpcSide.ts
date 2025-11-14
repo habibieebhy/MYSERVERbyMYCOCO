@@ -40,7 +40,7 @@ const insertMasonPcSideSchema = z.object({
   isReferred: z.boolean().nullable().optional(),
   referredByUser: strOrNull,
   referredToUser: strOrNull,
-  dealerId: strOrNull, // Will be validated by DB foreign key
+  dealerId: strOrNull, // Will b e validated by DB foreign key
   userId: intOrNull,    // Will be validated by DB foreign key
 }).strict(); // Use .strict() to catch any extra fields
 

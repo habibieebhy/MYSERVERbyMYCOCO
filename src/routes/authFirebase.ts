@@ -4,18 +4,46 @@ import jwt from "jsonwebtoken";
 import { getAuth } from "firebase-admin/auth";
 import crypto from "crypto";
 import { db } from "../db/db";
-import { masonPcSide } from "../db/schema";
+import { masonPcSide } from "../db/schema"; 
 import { authSessions } from "../db/schema";
 import { eq } from "drizzle-orm";
+import { z } from "zod"; // ⬅️ Added Zod for request validation
 
 const JWT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+
+// Zod schema for validating the incoming request body
+const firebaseAuthSchema = z.object({
+  idToken: z.string().min(1, "idToken required"),
+  // Include the fields required for the initial profile creation
+  name: z.string().min(1, "Name is required for new registration"), 
+}).strict();
 
 export default function setupAuthFirebaseRoutes(app: Express) {
   // POST /api/auth/firebase
   app.post("/api/auth/firebase", async (req: Request, res: Response) => {
+    
+    let validatedBody: z.infer<typeof firebaseAuthSchema>;
+
     try {
-      const { idToken } = req.body;
-      if (!idToken) return res.status(400).json({ success: false, error: "idToken required" });
+      // 1. Validate incoming request body
+      validatedBody = firebaseAuthSchema.parse(req.body);
+    } catch (e) {
+      if (e instanceof z.ZodError) {
+        // Handle Zod validation errors
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Validation failed', 
+          details: e.errors.map(err => ({
+            field: err.path.join('.'),
+            message: err.message,
+          })) 
+        });
+      }
+      return res.status(500).json({ success: false, error: "Internal server error during validation." });
+    }
+
+    try {
+      const { idToken, name } = validatedBody;
 
       const decoded = await getAuth().verifyIdToken(idToken);
       const firebaseUid = decoded.uid;
@@ -24,12 +52,18 @@ export default function setupAuthFirebaseRoutes(app: Express) {
 
       // upsert mason by uid/phone
       let mason = (await db.select().from(masonPcSide).where(eq(masonPcSide.firebaseUid, firebaseUid)).limit(1))[0];
+      
+      let isNewMason = false;
+
       if (!mason) {
         mason = (await db.select().from(masonPcSide).where(eq(masonPcSide.phoneNumber, phone)).limit(1))[0];
+        
         if (!mason) {
+          // *** CREATION STEP ***
+          isNewMason = true;
           const created = await db.insert(masonPcSide).values({
             id: crypto.randomUUID(),
-            name: "New Contractor",
+            name: name, // ⬅️ Use the validated name from the request body
             phoneNumber: phone,
             firebaseUid,
             kycStatus: "none",
@@ -37,7 +71,13 @@ export default function setupAuthFirebaseRoutes(app: Express) {
           }).returning();
           mason = created[0];
         } else if (!mason.firebaseUid) {
-          await db.update(masonPcSide).set({ firebaseUid }).where(eq(masonPcSide.id, mason.id));
+          // Existing phone record found, link it to the new Firebase UID and update name
+          await db.update(masonPcSide).set({ 
+            firebaseUid,
+            name: name // ⬅️ Update name on linking/registration completion
+          }).where(eq(masonPcSide.id, mason.id));
+          // Re-fetch the updated mason record
+          mason = (await db.select().from(masonPcSide).where(eq(masonPcSide.id, mason.id)).limit(1))[0];
         }
       }
 
@@ -64,11 +104,19 @@ export default function setupAuthFirebaseRoutes(app: Express) {
         jwt: jwtToken,
         sessionToken,
         sessionExpiresAt: expiresAt,
-        mason: { id: mason.id, phoneNumber: mason.phoneNumber, kycStatus: mason.kycStatus, pointsBalance: mason.pointsBalance },
+        mason: { 
+          id: mason.id, 
+          phoneNumber: mason.phoneNumber, 
+          name: mason.name, // ⬅️ Include name in response
+          kycStatus: mason.kycStatus, 
+          pointsBalance: mason.pointsBalance 
+        },
+        isNewUser: isNewMason // ⬅️ Indicate if this was a fresh creation
       });
     } catch (e) {
       console.error("auth/firebase error:", e);
-      return res.status(401).json({ success: false, error: "Invalid Firebase token" });
+      // Catch token verification errors, network issues, etc.
+      return res.status(401).json({ success: false, error: "Authentication failed or Invalid Firebase token" });
     }
   });
 
