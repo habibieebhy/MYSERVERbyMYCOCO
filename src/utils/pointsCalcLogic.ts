@@ -1,77 +1,72 @@
 // src/utils/pointsCalcLogic.ts
 
-/**
- * --- POLICY CONSTANTS ---
- * Based on "Mason and PC scheme policy_v5.pdf"
- */
 export const LOYALTY_CONSTANTS = {
-    // 3. Joining Bonus: "250 bonus points"
-    JOINING_BONUS_POINTS: 250,
-
-    // 1. Base Points: "1 point for every bag lifted"
     BASE_POINTS_PER_BAG: 1,
+    REFERRAL_BONUS_POINTS: 100,
+    REFERRAL_BAG_THRESHOLD: 200, 
 
-    // 2. Bonanza Points: "Additional 3 points per bag"
-    BONANZA_POINTS_PER_BAG: 3,
+    BONANZA_ADDITIONAL_POINTS_PER_BAG: 3, // 4 Total - 1 Base = 3 Additional
     BONANZA_START_DATE: new Date('2025-11-15T00:00:00.000Z'),
-    BONANZA_END_DATE: new Date('2026-01-15T23:59:59.999Z'),
+    // ⚠️ CORRECTED END DATE: from 15th Mar to 15th Jan 2026, based on image.
+    BONANZA_END_DATE: new Date('2026-01-15T23:59:59.999Z'), 
 
-    // 4. Extra Bonus: "Every 250 bags = +500 extra points"
+    // Joining Bonus: "250 points" (15th Nov to 31st Mar 2026)
+    JOINING_BONUS_POINTS: 250,
+    JOINING_BONUS_START_DATE: new Date('2025-11-15T00:00:00.000Z'),
+    JOINING_BONUS_END_DATE: new Date('2026-03-31T23:59:59.999Z'), // New end date
+
+    // Extra Points: "Every 250 bags = +500 points" (15th Nov to 31st Mar 2026)
     EXTRA_BONUS_BAG_SLAB: 250,
     EXTRA_BONUS_POINTS: 500,
-
-    // 5. Referral Bonus: "100 Points for referring new participants"
-    REFERRAL_BONUS_POINTS: 100,
-    // "Referee eligible once the referred person lifts 200 bags"
-    REFERRAL_BAG_THRESHOLD: 200,
+    EXTRA_BONUS_START_DATE: new Date('2025-11-15T00:00:00.000Z'),
+    EXTRA_BONUS_END_DATE: new Date('2026-03-31T23:59:59.999Z'), // New end date
 };
 
 // --- CORE CALCULATION FUNCTIONS ---
 
-/**
- * Calculates the flat, one-time Joining Bonus points.
- * This is triggered upon verified registration.
- */
 export function calculateJoiningBonusPoints(): number {
-    return LOYALTY_CONSTANTS.JOINING_BONUS_POINTS;
+    const today = new Date();
+    const isJoiningPeriod = 
+        today >= LOYALTY_CONSTANTS.JOINING_BONUS_START_DATE && 
+        today <= LOYALTY_CONSTANTS.JOINING_BONUS_END_DATE;
+
+    return isJoiningPeriod ? LOYALTY_CONSTANTS.JOINING_BONUS_POINTS : 0;
 }
 
-/**
- * Calculates Base Points and Bonanza Points for a single bag lift transaction.
- * @param bagCount The number of bags lifted.
- * @param purchaseDate The date of purchase (used to check for Bonanza period).
- * @returns The total points (Base + Bonanza) for this lift, excluding cumulative bonuses.
- */
 export function calculateBaseAndBonanzaPoints(bagCount: number, purchaseDate: Date): number {
+    // Always calculate Base Points: 1 Bag = 1 Point
     let points = bagCount * LOYALTY_CONSTANTS.BASE_POINTS_PER_BAG;
 
+    // Bonanza check: 15th Nov to 15th Jan 2026
     const isBonanzaPeriod = 
         purchaseDate >= LOYALTY_CONSTANTS.BONANZA_START_DATE && 
         purchaseDate <= LOYALTY_CONSTANTS.BONANZA_END_DATE;
         
     if (isBonanzaPeriod) {
-        points += bagCount * LOYALTY_CONSTANTS.BONANZA_POINTS_PER_BAG;
+        // Add the additional points: 1 Bag = 4 Total, so we add 3 more points.
+        points += bagCount * LOYALTY_CONSTANTS.BONANZA_ADDITIONAL_POINTS_PER_BAG;
     }
     
     return points;
 }
 
-/**
- * Calculates the cumulative "Extra Bonus Points" earned by this new lift.
- * This function should be called during TSO approval (PATCH) after retrieving the Mason's
- * total bags lifted prior to the current transaction.
- * * @param oldTotalBags The total number of bags lifted BEFORE the current transaction.
- * @param newBagCount The bags lifted in the current transaction.
- * @returns The total extra bonus points to be credited (0, 500, 1000, etc.).
- */
-export function calculateExtraBonusPoints(oldTotalBags: number, newBagCount: number): number {
+export function calculateExtraBonusPoints(oldTotalBags: number, newBagCount: number, transactionDate: Date): number {
+    const isExtraBonusPeriod =
+        transactionDate >= LOYALTY_CONSTANTS.EXTRA_BONUS_START_DATE &&
+        transactionDate <= LOYALTY_CONSTANTS.EXTRA_BONUS_END_DATE;
+
+    if (!isExtraBonusPeriod) {
+        return 0;
+    }
+    
     const newTotalBags = oldTotalBags + newBagCount;
+    const slab = LOYALTY_CONSTANTS.EXTRA_BONUS_BAG_SLAB;
     
     // Calculate how many 250-bag slabs were completed BEFORE the new lift
-    const oldSlabCount = Math.floor(oldTotalBags / LOYALTY_CONSTANTS.EXTRA_BONUS_BAG_SLAB);
+    const oldSlabCount = Math.floor(oldTotalBags / slab);
     
     // Calculate how many 250-bag slabs are completed AFTER the new lift
-    const newSlabCount = Math.floor(newTotalBags / LOYALTY_CONSTANTS.EXTRA_BONUS_BAG_SLAB);
+    const newSlabCount = Math.floor(newTotalBags / slab);
     
     // The number of new slabs crossed is the difference
     const slabsCrossed = newSlabCount - oldSlabCount;
@@ -84,13 +79,6 @@ export function calculateExtraBonusPoints(oldTotalBags: number, newBagCount: num
     return slabsCrossed * LOYALTY_CONSTANTS.EXTRA_BONUS_POINTS;
 }
 
-/**
- * Checks if the Referral Bonus should be triggered for the REFERRER.
- * This function should be called during TSO approval (PATCH) for the REFERRED Mason's lift.
- * * @param oldTotalBags The referred Mason's total bags BEFORE the current transaction.
- * @param newBagCount The referred Mason's current bags lifted.
- * @returns The Referral Bonus points (100) if the 200-bag threshold was just crossed, otherwise 0.
- */
 export function checkReferralBonusTrigger(oldTotalBags: number, newBagCount: number): number {
     const threshold = LOYALTY_CONSTANTS.REFERRAL_BAG_THRESHOLD; // 200 bags
     const newTotalBags = oldTotalBags + newBagCount;
@@ -99,4 +87,12 @@ export function checkReferralBonusTrigger(oldTotalBags: number, newBagCount: num
     const trigger = oldTotalBags < threshold && newTotalBags >= threshold;
 
     return trigger ? LOYALTY_CONSTANTS.REFERRAL_BONUS_POINTS : 0;
+}
+
+export function calculateRedemptionPoints(pointCost: number, quantity: number): number {
+    if (pointCost <= 0 || quantity <= 0) {
+        return 0;
+    }
+    // Redemption points are debited (negative value) from the Mason's balance.
+    return - (pointCost * quantity);
 }

@@ -764,7 +764,6 @@ export const pointsLedger = pgTable("points_ledger", {
   index("idx_points_ledger_source_id").on(t.sourceId),
 ]);
 
-
 /* ========================= reward_redemptions (new - to cover missing orders table) ========================= */
 export const rewardRedemptions = pgTable("reward_redemptions", {
   id: uuid("id").primaryKey().defaultRandom(),

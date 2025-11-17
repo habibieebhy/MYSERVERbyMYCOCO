@@ -1,8 +1,8 @@
 // server/src/routes/dataFetchingRoutes/pointsLedger.ts
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
-import { pointsLedger } from '../../db/schema'; // Import the table
-import { eq, and, desc, asc, SQL, gte, lte } from 'drizzle-orm';
+import { pointsLedger, masonPcSide } from '../../db/schema'; // 🟢 NEW: Import masonPcSide
+import { eq, and, desc, asc, SQL, gte, lte, getTableColumns } from 'drizzle-orm';
 
 // --- TSO AUTH IMPORT ---
 import { tsoAuth } from '../../middleware/tsoAuth';
@@ -24,27 +24,27 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
             conds.push(eq(pointsLedger.sourceType, String(q.sourceType)));
         }
 
-        // Filter by sourceId
+        // Filter by sourceId (UUID reference to BagLift or Redemption)
         if (q.sourceId) {
-            // NOTE: sourceId is nullable in the schema, but eq() handles null comparison correctly.
             conds.push(eq(pointsLedger.sourceId, String(q.sourceId)));
         }
+
+        // Filter by siteId (Assuming it's a field on pointsLedger for advanced systems)
+        if (q.siteId) {
+             // NOTE: If you add siteId to pointsLedger, this logic will need: conds.push(eq(pointsLedger.siteId, String(q.siteId)));
+             console.warn("Filtering by siteId requires the siteId column to be added to the pointsLedger schema.");
+        }
+
 
         // Date range filtering on createdAt
         const startDate = q.startDate as string | undefined;
         const endDate = q.endDate as string | undefined;
         
         if (startDate && endDate) {
-            // Convert date strings to Date objects for Drizzle's timestamp comparisons
             const start = new Date(startDate);
-            // To ensure we filter up to the end of the day on the endDate, we advance it by 1 day
-            // and use lte on the column against the original date, or use lt against the next day.
-            // For simplicity and common use case (inclusive date range):
             const end = new Date(endDate); 
 
-            // Basic validation: ensure dates are valid
             if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-                // Push the conditions individually into the conds array
                 conds.push(gte(pointsLedger.createdAt, start));
                 conds.push(lte(pointsLedger.createdAt, end));
             } else {
@@ -54,9 +54,6 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
 
         if (conds.length === 0) return undefined;
         
-        // FIX: If there are multiple conditions, combine them using `and`.
-        // Drizzle's and() function handles the `SQL[]` input without type errors if length is checked.
-        // If there is only one condition, return it directly.
         return conds.length === 1 ? conds[0] : and(...conds);
     };
 
@@ -72,7 +69,6 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
             case 'sourceType':
                 return direction === 'asc' ? asc(pointsLedger.sourceType) : desc(pointsLedger.sourceType);
             default:
-                // Default sort by creation date descending (most recent first)
                 return desc(pointsLedger.createdAt);
         }
     };
@@ -87,18 +83,26 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
 
             const extra = buildWhere(filters);
             
-            // This is the cleanest and most robust way to combine optional SQL conditions:
             const conds: SQL[] = [];
             if (baseWhere) conds.push(baseWhere);
             if (extra) conds.push(extra);
             
-            // Combine conditions only if they exist, resulting in SQL | undefined.
             const whereCondition: SQL | undefined = conds.length > 0 ? and(...conds) : undefined;
             const orderExpr = buildSort(String(sortBy), String(sortDir));
 
-            let query = db.select().from(pointsLedger).$dynamic();
+            //Query with join to get mason name
+            let query = db.select({
+                // Select all columns from pointsLedger
+                ...getTableColumns(pointsLedger),
+                // Add denormalized mason name
+                masonName: masonPcSide.name,
+                // Add mason phone number (useful for verification)
+                masonPhone: masonPcSide.phoneNumber, 
+            })
+            .from(pointsLedger)
+            .leftJoin(masonPcSide, eq(pointsLedger.masonId, masonPcSide.id))
+            .$dynamic();
 
-            // The critical check that resolves the error: only call .where() if SQL object exists
             if (whereCondition) {
                 query = query.where(whereCondition);
             }
@@ -121,22 +125,27 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
 
 
     // 1. GET ALL (with pagination, filtering, and sorting)
-    // --- TSO AUTH ADDED ---
     app.get('/api/points-ledger', tsoAuth, (req, res) => listHandler(req, res));
 
     // 2. GET BY ID
-    // --- TSO AUTH ADDED ---
     app.get('/api/points-ledger/:id', tsoAuth, async (req: Request, res: Response) => {
         try {
             const { id } = req.params;
 
-            const [record] = await db.select()
-                .from(pointsLedger)
-                .where(eq(pointsLedger.id, id))
-                .limit(1);
+            // Query with join for single record lookup
+            const [record] = await db.select({
+                ...getTableColumns(pointsLedger),
+                masonName: masonPcSide.name,
+                masonPhone: masonPcSide.phoneNumber,
+            })
+            .from(pointsLedger)
+            .leftJoin(masonPcSide, eq(pointsLedger.masonId, masonPcSide.id))
+            .where(eq(pointsLedger.id, id))
+            .limit(1);
 
             if (!record) {
-                return res.status(44).json({ success: false, error: 'Points Ledger entry not found' });
+                // Status 404 is correct, status 44 is not a standard HTTP code
+                return res.status(404).json({ success: false, error: 'Points Ledger entry not found' });
             }
 
             res.json({ success: true, data: record });
@@ -151,7 +160,6 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
     });
 
     // 3. GET BY MASON ID
-    // --- TSO AUTH ADDED ---
     app.get('/api/points-ledger/mason/:masonId', tsoAuth, (req, res) => {
         const { masonId } = req.params;
         if (!masonId) {
@@ -162,7 +170,6 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
     });
 
     // 4. GET BY SOURCE ID
-    // --- TSO AUTH ADDED ---
     app.get('/api/points-ledger/source/:sourceId', tsoAuth, (req, res) => {
         const { sourceId } = req.params;
         if (!sourceId) {
@@ -173,5 +180,5 @@ export default function setupPointsLedgerGetRoutes(app: Express) {
     });
 
 
-    console.log('✅ Points Ledger GET endpoints setup complete (All routes protected by tsoAuth)');
+    console.log('✅ Points Ledger GET endpoints setup complete (All routes protected by tsoAuth and now include Mason details)');
 }
