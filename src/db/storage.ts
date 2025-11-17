@@ -30,6 +30,7 @@ import {
   tsoAssignments, // NEW
   bagLifts, // NEW
   pointsLedger, // NEW
+  technicalSites,
 } from "../db/schema";
 import { db } from "./db";
 import { eq, and, gte, lte, desc, asc, sql, isNull } from "drizzle-orm";
@@ -100,6 +101,8 @@ export type RewardRedemption = typeof rewardRedemptions.$inferSelect;
 export type InsertRewardRedemption = typeof rewardRedemptions.$inferInsert;
 export type PointsLedger = typeof pointsLedger.$inferSelect;
 export type InsertPointsLedger = typeof pointsLedger.$inferInsert;
+export type TechnicalSite = typeof technicalSites.$inferSelect;
+export type InsertTechnicalSite = typeof technicalSites.$inferInsert;
 
 
 export interface IStorage {
@@ -181,115 +184,102 @@ export interface IStorage {
   getBusinessMetrics(companyId: number): Promise<any>;
   assignTaskToUser(taskData: InsertDailyTask): Promise<DailyTask>;
 
-  // SALES ORDERS
+  getTechnicalSite(id: string): Promise<TechnicalSite | undefined>;
+  getTechnicalSiteByPhoneNo(phoneNo: string): Promise<TechnicalSite | undefined>;
+  getTechnicalSitesByRegion(region: string): Promise<TechnicalSite[]>;
+  createTechnicalSite(data: InsertTechnicalSite): Promise<TechnicalSite>;
+  updateTechnicalSite(id: string, updates: Partial<InsertTechnicalSite>): Promise<TechnicalSite>;
+
   getSalesOrder(id: string): Promise<SalesOrder | undefined>;
   getSalesOrdersBySalesmanId(salesmanId: number): Promise<SalesOrder[]>;
   getSalesOrdersByDealerId(dealerId: string): Promise<SalesOrder[]>;
   createSalesOrder(data: InsertSalesOrder): Promise<SalesOrder>;
   updateSalesOrder(id: string, updates: Partial<InsertSalesOrder>): Promise<SalesOrder>;
 
-  // RATINGS
   getRating(id: number): Promise<Rating | undefined>;
   getRatingsByUserId(userId: number): Promise<Rating[]>;
   createRating(data: InsertRating): Promise<Rating>;
   updateRating(id: number, updates: Partial<InsertRating>): Promise<Rating>;
 
-  // BRANDS
   getBrand(id: number): Promise<Brand | undefined>;
   getBrandByName(name: string): Promise<Brand | undefined>;
   listBrands(): Promise<Brand[]>;
   createBrand(data: InsertBrand): Promise<Brand>;
   updateBrand(id: number, updates: Partial<InsertBrand>): Promise<Brand>;
 
-  // DEALER BRAND MAPPING
   getDealerBrandMap(id: string): Promise<DealerBrandMap | undefined>;
   getDealerBrandMapsByDealerId(dealerId: string): Promise<DealerBrandMap[]>;
   getDealerBrandMapsByBrandId(brandId: number): Promise<DealerBrandMap[]>;
   upsertDealerBrandMap(data: InsertDealerBrandMap): Promise<DealerBrandMap>;
 
-  // --- TSO MEETINGS
   getTSOMeeting(id: string): Promise<TSOMeeting | undefined>;
   getTSOMeetingsByUserId(userId: number): Promise<TSOMeeting[]>;
   createTSOMeeting(data: InsertTSOMeeting): Promise<TSOMeeting>;
   updateTSOMeeting(id: string, updates: Partial<InsertTSOMeeting>): Promise<TSOMeeting>;
 
-  // --- REWARDS (UPDATED from Gift Inventory) ---
   getRewardItem(id: number): Promise<Reward | undefined>;
   listRewards(): Promise<Reward[]>;
   createRewardItem(data: InsertReward): Promise<Reward>;
   updateRewardItem(id: number, updates: Partial<InsertReward>): Promise<Reward>;
 
-  // --- REWARD CATEGORIES (NEW) ---
   getRewardCategory(id: number): Promise<RewardCategory | undefined>;
   listRewardCategories(): Promise<RewardCategory[]>;
   createRewardCategory(data: InsertRewardCategory): Promise<RewardCategory>;
   updateRewardCategory(id: number, updates: Partial<InsertRewardCategory>): Promise<RewardCategory>;
 
-  // --- GIFT ALLOCATION LOGS
   getGiftAllocationLog(id: string): Promise<GiftAllocationLog | undefined>;
   getGiftAllocationLogsByUserId(userId: number): Promise<GiftAllocationLog[]>;
   getGiftAllocationLogsByGiftId(giftId: number): Promise<GiftAllocationLog[]>;
   createGiftAllocationLog(data: InsertGiftAllocationLog): Promise<GiftAllocationLog>;
 
-  // --- MASON / PC SIDE
   getMason(id: string): Promise<MasonPcSide | undefined>;
   getMasonsByUserId(userId: number): Promise<MasonPcSide[]>;
   getMasonsByDealerId(dealerId: string): Promise<MasonPcSide[]>;
   createMason(data: InsertMasonPcSide): Promise<MasonPcSide>;
   updateMason(id: string, updates: Partial<InsertMasonPcSide>): Promise<MasonPcSide>;
 
-  // --- KYC SUBMISSIONS (NEW) ---
   getKYCSubmission(id: string): Promise<KYCSubmission | undefined>;
   getKYCSubmissionByMasonId(masonId: string): Promise<KYCSubmission | undefined>;
   createKYCSubmission(data: InsertKYCSubmission): Promise<KYCSubmission>;
   updateKYCSubmission(id: string, updates: Partial<InsertKYCSubmission>): Promise<KYCSubmission>;
 
-  // --- TSO ASSIGNMENTS (NEW - Composite PK) ---
   getTSOAssignment(tsoId: number, masonId: string): Promise<TSOAssignment | undefined>;
   getTSOAssignmentsByTSOId(tsoId: number): Promise<TSOAssignment[]>;
   getTSOAssignmentsByMasonId(masonId: string): Promise<TSOAssignment[]>;
   addTSOAssignment(data: InsertTSOAssignment): Promise<TSOAssignment>;
   removeTSOAssignment(tsoId: number, masonId: string): Promise<void>;
 
-  // --- BAG LIFTS (NEW) ---
   getBagLift(id: string): Promise<BagLift | undefined>;
   getBagLiftsByMasonId(masonId: string): Promise<BagLift[]>;
   getBagLiftsByDealerId(dealerId: string): Promise<BagLift[]>;
   createBagLift(data: InsertBagLift): Promise<BagLift>;
   updateBagLift(id: string, updates: Partial<InsertBagLift>): Promise<BagLift>;
 
-  // --- REWARD REDEMPTIONS (NEW) ---
   getRewardRedemption(id: string): Promise<RewardRedemption | undefined>;
   getRewardRedemptionsByMasonId(masonId: string): Promise<RewardRedemption[]>;
   createRewardRedemption(data: InsertRewardRedemption): Promise<RewardRedemption>;
   updateRewardRedemption(id: string, updates: Partial<InsertRewardRedemption>): Promise<RewardRedemption>;
 
-  // --- POINTS LEDGER (NEW) ---
   getPointsLedgerEntry(id: string): Promise<PointsLedger | undefined>;
   getPointsLedgerByMasonId(masonId: string): Promise<PointsLedger[]>;
   createPointsLedgerEntry(data: InsertPointsLedger): Promise<PointsLedger>;
-  // Note: PointsLedger entries are typically immutable, so no update method
 
-  // --- OTP VERIFICATIONS
   getOtp(id: string): Promise<OtpVerification | undefined>;
   findOtpByMasonId(masonId: string): Promise<OtpVerification | undefined>;
   createOtp(data: InsertOtpVerification): Promise<OtpVerification>;
   deleteOtp(id: string): Promise<void>;
 
-  // --- SCHEMES & OFFERS
   getScheme(id: string): Promise<SchemeOffer | undefined>;
   listSchemes(): Promise<SchemeOffer[]>;
   createScheme(data: InsertSchemeOffer): Promise<SchemeOffer>;
   updateScheme(id: string, updates: Partial<InsertSchemeOffer>): Promise<SchemeOffer>;
 
-  // --- MASON ON SCHEME
   getMasonOnScheme(masonId: string, schemeId: string): Promise<MasonOnScheme | undefined>;
   getSchemesForMason(masonId: string): Promise<MasonOnScheme[]>;
   getMasonsForScheme(schemeId: string): Promise<MasonOnScheme[]>;
   addMasonToScheme(data: InsertMasonOnScheme): Promise<MasonOnScheme>;
   removeMasonFromScheme(masonId: string, schemeId: string): Promise<void>;
 
-  // --- MASONS ON MEETINGS
   getMasonOnMeeting(masonId: string, meetingId: string): Promise<MasonsOnMeetings | undefined>;
   getMeetingsForMason(masonId: string): Promise<MasonsOnMeetings[]>;
   getMasonsForMeeting(meetingId: string): Promise<MasonsOnMeetings[]>;
@@ -812,6 +802,37 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ========================================
+  // TECHNICAL SITE OPERATIONS
+  // ========================================
+  async getTechnicalSite(id: string): Promise<TechnicalSite | undefined> {
+    const [site] = await db.select().from(technicalSites).where(eq(technicalSites.id, id));
+    return site || undefined;
+  }
+
+  async getTechnicalSiteByPhoneNo(phoneNo: string): Promise<TechnicalSite | undefined> {
+    const [site] = await db.select().from(technicalSites).where(eq(technicalSites.phoneNo, phoneNo));
+    return site || undefined;
+  }
+
+  async getTechnicalSitesByRegion(region: string): Promise<TechnicalSite[]> {
+    // Assuming 'region' on technicalSites is nullable/optional and not null for this query
+    return await db.select().from(technicalSites).where(eq(technicalSites.region, region));
+  }
+
+  async createTechnicalSite(data: InsertTechnicalSite): Promise<TechnicalSite> {
+    const [site] = await db.insert(technicalSites).values(data).returning();
+    return site;
+  }
+
+  async updateTechnicalSite(id: string, updates: Partial<InsertTechnicalSite>): Promise<TechnicalSite> {
+    const [site] = await db.update(technicalSites).set({
+      ...updates,
+      updatedAt: new Date()
+    }).where(eq(technicalSites.id, id)).returning();
+    return site;
+  }
+
+  // ========================================
   // RATINGS
   // ========================================
   async getRating(id: number): Promise<Rating | undefined> {
@@ -975,7 +996,7 @@ export class DatabaseStorage implements IStorage {
     const [row] = await db.update(masonPcSide).set(updates).where(eq(masonPcSide.id, id)).returning();
     return row;
   }
-  
+
   // ========================================
   // KYC SUBMISSIONS (NEW)
   // ========================================

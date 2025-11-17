@@ -33,6 +33,7 @@ import setupRewardCategoriesGetRoutes from './src/routes/dataFetchingRoutes/rewa
 import setupRewardsGetRoutes from './src/routes/dataFetchingRoutes/rewards';
 import setupRewardsRedemptionGetRoutes from './src/routes/dataFetchingRoutes/rewardsRedemption';
 import setupKycSubmissionsRoutes from './src/routes/dataFetchingRoutes/kycSubmissions';
+import setupTechnicalSitesRoutes from './src/routes/dataFetchingRoutes/technicalSites';
 
 // Data Sync UPSERT
 import setupDealerSyncRoutes from './src/routes/dataSync/dealer';
@@ -80,6 +81,7 @@ import setupRewardsRedemptionPostRoute from './src/routes/formSubmissionRoutes/r
 import setupKycSubmissionsPostRoute from './src/routes/formSubmissionRoutes/kycSubmission';
 import setupRewardsPostRoute from './src/routes/formSubmissionRoutes/rewards';
 import setupPointsLedgerPostRoutes from './src/routes/dataFetchingRoutes/pointsLedger';
+import setupTechnicalSitesPostRoutes from './src/routes/formSubmissionRoutes/technicalSites';
 
 
 // --- Import UPDATE (PATCH) route setups ---
@@ -100,6 +102,7 @@ import setupKycSubmissionsPatchRoute from './src/routes/updateRoutes/kycSubmissi
 import setupRewardsPatchRoute from './src/routes/updateRoutes/rewards';
 import setupRewardsRedemptionPatchRoute from './src/routes/updateRoutes/rewardsRedemption';
 import setupBagLiftsPatchRoute from './src/routes/updateRoutes/bagsLift';
+import setupTechnicalSitesUpdateRoutes from './src/routes/updateRoutes/technicalSites';
 
 // --- Import GEO TRACKING route setups ---
 import setupGeoTrackingRoutes from './src/routes/geoTrackingRoutes/geoTracking';
@@ -189,6 +192,7 @@ setupPointsLedgerGetRoutes(app);
 setupRewardsGetRoutes(app);
 setupRewardsRedemptionGetRoutes(app);
 setupKycSubmissionsRoutes(app);
+setupTechnicalSitesRoutes(app);
 
 
 // POST Endpoints
@@ -217,6 +221,7 @@ setupRewardCategoriesGetRoutes(app);
 setupKycSubmissionsPostRoute(app);
 setupRewardsPostRoute(app);
 setupPointsLedgerPostRoutes(app);
+setupTechnicalSitesPostRoutes(app);
 
 // DELETE Endpoints
 setupDealersDeleteRoutes(app);           // DELETE /api/dealers/*
@@ -255,6 +260,7 @@ setupKycSubmissionsPatchRoute(app);
 setupRewardsPatchRoute(app);
 setupRewardsRedemptionPatchRoute(app);
 setupBagLiftsPatchRoute(app);
+setupTechnicalSitesUpdateRoutes(app);
 
 // ---------- GEO TRACKING SETUP--------
 setupGeoTrackingRoutes(app);

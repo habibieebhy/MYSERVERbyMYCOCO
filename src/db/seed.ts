@@ -29,13 +29,13 @@ import {
   schemesOffers,
   masonOnScheme,
   masonsOnMeetings,
-  // NEW TABLES:
-  rewardCategories, // New table
-  kycSubmissions,   // New table
-  tsoAssignments,   // New table
-  bagLifts,         // New table
-  rewardRedemptions, // New table
-  pointsLedger,     // New table
+  rewardCategories,
+  kycSubmissions,  
+  tsoAssignments,  
+  bagLifts,        
+  rewardRedemptions, 
+  pointsLedger,  
+  technicalSites,
 } from "./schema";
 
 async function seedDatabase() {
@@ -85,6 +85,7 @@ async function seedDatabase() {
 
   // --- 7. Delete independent tables ---
   await db.delete(tallyRaw);
+  await db.delete(technicalSites);
   
   console.log("Database cleared successfully (no demo data inserted).");
 }

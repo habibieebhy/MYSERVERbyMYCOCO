@@ -67,15 +67,16 @@ export const users = pgTable("users", {
 
   // --- ADDED FOR PRISMA PARITY ---
   noOfPJP: integer("no_of_pjp"),
+  siteId: uuid("site_id").references((): any => technicalSites.id, { onDelete: "set null" }),
   
 }, (t) => [
   uniqueIndex("users_companyid_email_unique").on(t.companyId, t.email),
   index("idx_user_company_id").on(t.companyId),
   index("idx_workos_user_id").on(t.workosUserId),
+  index("idx_user_site_id").on(t.siteId),
 ]);
 
 /* ========================= tso_meetings (Moved up) ========================= */
-// Moved before technicalVisitReports because it's referenced
 export const tsoMeetings = pgTable("tso_meetings", {
   id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   type: varchar("type", { length: 100 }).notNull(), // e.g., "Head Mason Meet"
@@ -84,10 +85,12 @@ export const tsoMeetings = pgTable("tso_meetings", {
   budgetAllocated: numeric("budget_allocated", { precision: 12, scale: 2 }),
   participantsCount: integer("participants_count"),
   createdByUserId: integer("created_by_user_id").notNull().references(() => users.id),
+  siteId: uuid("site_id").references(() => technicalSites.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
 }, (t) => [
   index("idx_tso_meetings_created_by_user_id").on(t.createdByUserId),
+  index("idx_user_site_id").on(t.siteId),
 ]);
 
 /* ========================= permanent_journey_plans (FIXED) ========================= */
@@ -109,6 +112,7 @@ export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
 
   bulkOpId: varchar("bulk_op_id", { length: 50 }),
   idempotencyKey: varchar("idempotency_key", { length: 120 }),
+  siteId: uuid("site_id").references(() => technicalSites.id, { onDelete: "set null" }),
 
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
@@ -118,9 +122,8 @@ export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
   index("idx_pjp_dealer_id").on(t.dealerId),
   index("idx_pjp_bulk_op_id").on(t.bulkOpId),
   uniqueIndex("uniq_pjp_user_dealer_plan_date").on(t.userId, t.dealerId, t.planDate),
-  uniqueIndex("uniq_pjp_idempotency_key_not_null")
-    .on(t.idempotencyKey)
-    .where(sql`${t.idempotencyKey} IS NOT NULL`),
+  uniqueIndex("uniq_pjp_idempotency_key_not_null").on(t.idempotencyKey).where(sql`${t.idempotencyKey} IS NOT NULL`),
+  index("idx_user_site_id").on(t.siteId),
 ]);
 
 /* ========================= daily_visit_reports (FIXED w/ Sub Dealers) ========================= */
@@ -220,6 +223,7 @@ export const technicalVisitReports = pgTable("technical_visit_reports", {
   longitude: numeric("longitude", { precision: 9, scale: 6 }),
   // Use (): any for forward reference to masonPcSide
   masonId: uuid("mason_id").references((): any => masonPcSide.id, { onDelete: "set null" }), 
+  siteId: uuid("site_id").references(() => technicalSites.id, { onDelete: "set null" }),
   
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
@@ -228,6 +232,7 @@ export const technicalVisitReports = pgTable("technical_visit_reports", {
   index("idx_technical_visit_reports_meeting_id").on(t.meetingId),
   index("idx_technical_visit_reports_pjp_id").on(t.pjpId),
   index("idx_tvr_mason_id").on(t.masonId),
+  index("idx_user_site_id").on(t.siteId),
 ]);
 
 /* ========================= dealers (extended to match Prisma) ========================= */
@@ -320,11 +325,14 @@ export const dealers = pgTable("dealers", {
   blankChequePicUrl: varchar("blank_cheque_pic_url", { length: 500 }),
   partnershipDeedPicUrl: varchar("partnership_deed_pic_url", { length: 500 }),
 
+  siteId: uuid("site_id").references(():any => technicalSites.id, { onDelete: "set null" }),
+
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
   index("idx_dealers_user_id").on(t.userId),
   index("idx_dealers_parent_dealer_id").on(t.parentDealerId),
+  index("idx_user_site_id").on(t.siteId),
 ]);
 
 /* ========================= salesman_attendance ========================= */
@@ -417,6 +425,7 @@ export const geoTracking = pgTable("geo_tracking", {
   isActive: boolean("is_active").notNull().default(true),
   destLat: numeric("dest_lat", { precision: 10, scale: 7 }),
   destLng: numeric("dest_lng", { precision: 10, scale: 7 }),
+  siteId: uuid("site_id").references(() => technicalSites.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
@@ -425,6 +434,7 @@ export const geoTracking = pgTable("geo_tracking", {
   index("idx_geo_active").on(t.isActive),
   index("idx_geo_tracking_user_id").on(t.userId),
   index("idx_geo_tracking_recorded_at").on(t.recordedAt),
+  index("idx_user_site_id").on(t.siteId),
 ]);
 
 /* ========================= daily_tasks ========================= */
@@ -439,6 +449,7 @@ export const dailyTasks = pgTable("daily_tasks", {
   description: varchar("description", { length: 500 }),
   status: varchar("status", { length: 50 }).notNull().default("Assigned"),
   pjpId: varchar("pjp_id", { length: 255 }).references(() => permanentJourneyPlans.id, { onDelete: "set null" }),
+  siteId: uuid("site_id").references(() => technicalSites.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
 }, (t) => [
@@ -449,6 +460,7 @@ export const dailyTasks = pgTable("daily_tasks", {
   index("idx_daily_tasks_related_dealer_id").on(t.relatedDealerId),
   index("idx_daily_tasks_date_user").on(t.taskDate, t.userId),
   index("idx_daily_tasks_status").on(t.status),
+  index("idx_user_site_id").on(t.siteId),
 ]);
 
 /* ========================= dealer_reports_and_scores ========================= */
@@ -630,10 +642,12 @@ export const masonPcSide = pgTable("mason_pc_side", {
   referredByUser: text("referred_by_user"),
   referredToUser: text("referred_to_user"),
   dealerId: varchar("dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null", onUpdate: "cascade" }),
+  siteId: uuid("site_id").references(():any => technicalSites.id, { onDelete: "set null" }),
   userId: integer("user_id").references(() => users.id, { onDelete: "set null", onUpdate: "cascade" }), // TSO/Salesperson ID
 }, (t) => [
   index("idx_mason_pc_side_dealer_id").on(t.dealerId),
   index("idx_mason_pc_side_user_id").on(t.userId),
+  index("idx_user_site_id").on(t.siteId),
 ]);
 
 /* ========================= otp_verifications ========================= */
@@ -660,9 +674,11 @@ export const masonOnScheme = pgTable("mason_on_scheme", {
   masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade", onUpdate: "cascade" }),
   schemeId: uuid("scheme_id").notNull().references(() => schemesOffers.id, { onDelete: "cascade", onUpdate: "cascade" }),
   enrolledAt: timestamp("enrolled_at", { withTimezone: true, precision: 6 }).defaultNow(),
+  siteId: uuid("site_id").references(() => technicalSites.id, { onDelete: "set null" }),
   status: varchar("status", { length: 255 }),
 }, (t) => ({
   pk: primaryKey({ columns: [t.masonId, t.schemeId] }),
+  siteIndex: index("idx_user_site_id").on(t.siteId),
 }));
 
 /* ========================= masons_on_meetings (join table) ========================= */
@@ -770,6 +786,48 @@ export const rewardRedemptions = pgTable("reward_redemptions", {
 
 // --- END NEW LOYALTY TABLES FROM SAMPLE SCHEMA ---
 
+export const technicalSites = pgTable("technical_sites", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  siteName: varchar("site_name", { length: 255 }).notNull(),
+
+  // PRIMARY CONTACT INFO
+  concernedPerson: varchar("concerned_person", { length: 255 }).notNull(),
+  phoneNo: varchar("phone_no", { length: 20 }).notNull(),
+  address: text("address"),
+
+  // LOCATION AND GEOGRAPHY
+  latitude: numeric("latitude", { precision: 10, scale: 7 }),
+  longitude: numeric("longitude", { precision: 10, scale: 7 }),
+  siteType: varchar("site_type", { length: 50 }),
+  area: varchar("area", { length: 100 }),
+  region: varchar("region", { length: 100 }),
+
+  // SECONDARY/KEYPERSON DETAILS
+  keyPersonName: varchar("key_person_name", { length: 255 }),
+  keyPersonPhoneNum: varchar("key_person_phone_num", { length: 20 }),
+
+  // PROJECT/CONSTRUCTION STATUS
+  stageOfConstruction: varchar("stage_of_construction", { length: 100 }),
+  constructionStartDate: date("construction_start_date"),
+  constructionEndDate: date("construction_end_date"),
+
+  // SALES/TSO TRACKING FIELDS
+  convertedSite: boolean("converted_site").default(false),
+  firstVistDate: date("first_visit_date"),
+  lastVisitDate: date("last_visit_date"),
+  needFollowUp: boolean("need_follow_up").default(false),
+
+  // PRIMARY RELATIONS (Foreign Keys)
+  relatedDealerID: varchar("related_dealer_id", { length: 255 }).references(() => dealers.id, { onDelete: "set null" }),
+
+  relatedMasonpcID: uuid("related_mason_pc_id").references(() => masonPcSide.id, { onDelete: "set null" }),
+
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+}, (t) => [
+  index("idx_technical_sites_dealer_id").on(t.relatedDealerID),
+  index("idx_technical_sites_mason_id").on(t.relatedMasonpcID),
+]);
 
 /* ========================= drizzle-zod insert schemas ========================= */
 export const insertCompanySchema = createInsertSchema(companies);
@@ -803,11 +861,10 @@ export const insertSchemesOffersSchema = createInsertSchema(schemesOffers);
 export const insertMasonOnSchemeSchema = createInsertSchema(masonOnScheme);
 export const insertMasonsOnMeetingsSchema = createInsertSchema(masonsOnMeetings);
 
-// --- ADDED DRIZZLE-ZOD SCHEMAS ---
 export const insertRewardCategorySchema = createInsertSchema(rewardCategories);
 export const insertKycSubmissionSchema = createInsertSchema(kycSubmissions);
 export const insertTsoAssignmentSchema = createInsertSchema(tsoAssignments);
 export const insertBagLiftSchema = createInsertSchema(bagLifts);
 export const insertPointsLedgerSchema = createInsertSchema(pointsLedger);
 export const insertRewardRedemptionSchema = createInsertSchema(rewardRedemptions);
-// --- END ADDED DRIZZLE-ZOD SCHEMAS ---
+export const insertTechnicalSiteSchema = createInsertSchema(technicalSites);

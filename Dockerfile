@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install --production=false
 
-# 2. Build the application
+# 2. Build the application 
 COPY . .
 RUN npm run build
 
