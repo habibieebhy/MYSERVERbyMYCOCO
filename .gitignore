@@ -3,3 +3,5 @@ node_modules/
 .env
 count:0
 count:*
+dist
+dist/
