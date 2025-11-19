@@ -131,7 +131,7 @@ export default function setupBagLiftsPatchRoute(app: Express) {
             // --- D. Extra Bonus Logic (Policy Rule 12 & 13) ---
             const oldTotalBags = masonBeforeCredit.bagsLifted ?? 0;
             const currentLiftBags = updated.bagCount;
-            const extraBonus = calculateExtraBonusPoints(oldTotalBags, currentLiftBags);
+            const extraBonus = calculateExtraBonusPoints(oldTotalBags, currentLiftBags, existingRecord.purchaseDate );
 
             if (extraBonus > 0) {
                 // Insert ledger entry for the Extra Bonus
