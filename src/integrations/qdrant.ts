@@ -21,14 +21,14 @@ export async function testQdrant() {
         }
 
         return true;
-    } catch (err) {
+    } catch (err:any) {
         console.error("❌ Qdrant connection failed:", err.message);
         return false;
     }
 }
 
 // Function to search for similar endpoints
-export async function searchSimilarEndpoints(queryEmbedding, limit = 3) {
+export async function searchSimilarEndpoints(queryEmbedding:any, limit = 3) {
     try {
         const searchResult = await qdrantClient.search("api_endpoints", {
             vector: queryEmbedding,

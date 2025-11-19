@@ -60,7 +60,7 @@ function createAutoCRUD(app: Express, config: {
             field: err.path.join('.'),
             message: err.message,
             code: err.code,
-            received: err.received
+            received: err.message
           }))
         });
       }

@@ -47,7 +47,7 @@ function createAutoCRUD(app: Express, config: {
           }
         });
 
-        let query = db.select().from(table);
+        let query:any = db.select().from(table);
         
         if (whereCondition) {
           query = query.where(whereCondition);
@@ -153,7 +153,7 @@ function createAutoCRUD(app: Express, config: {
           }
         });
 
-        let query = db.select().from(table);
+        let query:any = db.select().from(table);
         
         if (whereCondition) {
           query = query.where(whereCondition);
@@ -204,7 +204,7 @@ function createAutoCRUD(app: Express, config: {
         const { dealerId } = req.params;
         const { limit = '50', brandId } = req.query;
 
-        let whereCondition = eq(table.dealerId, dealerId);
+        let whereCondition:any = eq(table.dealerId, dealerId);
 
         // Additional filter by brandId
         if (brandId) {
@@ -233,7 +233,7 @@ function createAutoCRUD(app: Express, config: {
         const { brandId } = req.params;
         const { limit = '50', dealerId } = req.query;
 
-        let whereCondition = eq(table.brandId, parseInt(brandId));
+        let whereCondition:any = eq(table.brandId, parseInt(brandId));
 
         // Additional filter by dealerId
         if (dealerId) {

@@ -96,7 +96,7 @@ function createAutoCRUD(app: Express, config: {
       const { userId } = req.params;
       const { startDate, endDate, limit = '50', brandName } = req.query;
 
-      let whereCondition  = eq(table.userId, parseInt(userId));
+      let whereCondition:any  = eq(table.userId, parseInt(userId));
 
       // Date range filtering
       if (startDate && endDate && dateField && table[dateField]) {
@@ -111,7 +111,7 @@ function createAutoCRUD(app: Express, config: {
         whereCondition = and(whereCondition, eq(table.brandName, brandName as string));
       }
 
-      const orderField = table[dateField] || table.createdAt;
+      const orderField = table[dateField as any] || table.createdAt;
       const records = await db.select().from(table)
         .where(whereCondition)
         .orderBy(desc(orderField))
@@ -158,7 +158,7 @@ function createAutoCRUD(app: Express, config: {
       const { brandName } = req.params;
       const { startDate, endDate, limit = '50', userId } = req.query;
 
-      let whereCondition = eq(table.brandName, brandName);
+      let whereCondition:any = eq(table.brandName, brandName);
 
       // Date range filtering
       if (startDate && endDate && dateField && table[dateField]) {
@@ -173,7 +173,7 @@ function createAutoCRUD(app: Express, config: {
         whereCondition = and(whereCondition, eq(table.userId, parseInt(userId as string)));
       }
 
-      const orderField = table[dateField] || table.createdAt;
+      const orderField = table[dateField as any] || table.createdAt;
       const records = await db.select().from(table)
         .where(whereCondition)
         .orderBy(desc(orderField))

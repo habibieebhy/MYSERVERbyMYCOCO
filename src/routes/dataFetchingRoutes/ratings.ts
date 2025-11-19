@@ -65,7 +65,7 @@ function createAutoCRUD(app: Express, config: {
         }
       });
 
-      let query = db.select().from(table);
+      let query:any = db.select().from(table);
       
       if (whereCondition) {
         query = query.where(whereCondition);
@@ -92,7 +92,7 @@ function createAutoCRUD(app: Express, config: {
       const { userId } = req.params;
       const { limit = '50', area, region, rating } = req.query;
 
-      let whereCondition = eq(table.userId, parseInt(userId));
+      let whereCondition:any = eq(table.userId, parseInt(userId));
 
       if (area) {
         whereCondition = and(whereCondition, eq(table.area, area as string));
@@ -150,7 +150,7 @@ function createAutoCRUD(app: Express, config: {
       const { area } = req.params;
       const { limit = '50', userId, region } = req.query;
 
-      let whereCondition = eq(table.area, area);
+      let whereCondition:any = eq(table.area, area);
 
       if (userId) {
         whereCondition = and(whereCondition, eq(table.userId, parseInt(userId as string)));
@@ -181,7 +181,7 @@ function createAutoCRUD(app: Express, config: {
       const { region } = req.params;
       const { limit = '50', userId, area } = req.query;
 
-      let whereCondition = eq(table.region, region);
+      let whereCondition:any = eq(table.region, region);
 
       if (userId) {
         whereCondition = and(whereCondition, eq(table.userId, parseInt(userId as string)));

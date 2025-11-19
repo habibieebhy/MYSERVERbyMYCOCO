@@ -5,16 +5,6 @@ import { db } from '../../db/db';
 import { rewardCategories } from '../../db/schema'; // Import the table
 import { eq, and, desc, asc, SQL, ilike } from 'drizzle-orm';
 
-/**
- * Sets up GET routes for the reward_categories table.
- *
- * 1. GET /api/reward-categories
- * - Optional query params: ?limit=... & ?page=... & ?search=... & ?sortBy=...
- * - Returns a paginated and filtered list of all reward categories.
- *
- * 2. GET /api/reward-categories/:id
- * - Returns a single category by its ID.
- */
 export default function setupRewardCategoriesGetRoutes(app: Express) {
 
   // Helper to build WHERE clause for filtering (only 'name' search for this table)
