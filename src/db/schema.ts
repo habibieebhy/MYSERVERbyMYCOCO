@@ -700,7 +700,6 @@ export const rewardCategories = pgTable("reward_categories", {
   name: varchar("name", { length: 120 }).notNull().unique(),
 });
 
-
 /* ========================= kyc_submissions (new) ========================= */
 export const kycSubmissions = pgTable("kyc_submissions", {
   id: uuid("id").primaryKey().defaultRandom(),

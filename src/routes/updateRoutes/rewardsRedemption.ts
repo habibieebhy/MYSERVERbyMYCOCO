@@ -3,24 +3,20 @@
 
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
-// 🟢 NEW: Import masonPcSide and pointsLedger for atomic transaction
-import { rewardRedemptions, masonPcSide, pointsLedger } from '../../db/schema'; 
+// 🟢 IMPORT rewards table for stock management
+import { rewardRedemptions, masonPcSide, pointsLedger, rewards } from '../../db/schema'; 
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { randomUUID } from 'crypto'; // Needed to generate unique ID for adjustment ledger
 
-// --- Define CustomRequest to access req.auth ---
 interface CustomRequest extends Request {
     auth?: {
-        sub: string; // User ID from 'users' table
+        sub: string; 
         role: string;
         phone: string;
         kyc: string;
     };
 }
-// ---
 
-// Note: The 'approved' status here is typically for TSO approval to move it to fulfillment.
 const redemptionFulfillmentSchema = z.object({
   status: z.enum(['approved', 'shipped', 'delivered', 'rejected']),
   fulfillmentNotes: z.string().max(500).optional().nullable(),
@@ -34,7 +30,7 @@ export default function setupRewardsRedemptionPatchRoute(app: Express) {
     try {
       const { id } = req.params;
 
-      // 1. Get Authenticated User ID
+      // 1. Auth Check
       if (!req.auth || !req.auth.sub) {
         return res.status(401).json({ success: false, error: "Authentication details missing." });
       }
@@ -47,7 +43,7 @@ export default function setupRewardsRedemptionPatchRoute(app: Express) {
       // 2. Validate input
       const input = redemptionFulfillmentSchema.parse(req.body);
       
-      // 3. Check existing record
+      // 3. Fetch existing record
       const [existingRecord] = await db.select().from(rewardRedemptions).where(eq(rewardRedemptions.id, id)).limit(1);
       if (!existingRecord) {
         return res.status(404).json({ error: `${tableName} with ID '${id}' not found.` });
@@ -56,80 +52,122 @@ export default function setupRewardsRedemptionPatchRoute(app: Express) {
       const { status, fulfillmentNotes } = input;
       const currentStatus = existingRecord.status;
       const masonId = existingRecord.masonId;
-      const points = existingRecord.pointsDebited; // Already stored as the points to be deducted
-      
-      // OPTIONAL IMPROVEMENT: Add status flow validation here (e.g., cannot go from 'delivered' back to 'shipped')
+      const points = existingRecord.pointsDebited; 
+      const qty = existingRecord.quantity; 
+      const rewardId = existingRecord.rewardId; 
+
+      // Flow Validation
       if (currentStatus === 'delivered' && status !== 'delivered') {
          return res.status(400).json({ success: false, error: 'Cannot change status of an already delivered item.' });
       }
 
-      // --- 4. CORE FINANCIAL TRANSACTION LOGIC ---
+      // --- 4. CORE FINANCIAL & INVENTORY TRANSACTION ---
       
       const updatedRecord = await db.transaction(async (tx) => {
           
-          // 4.1. Debit Logic: Only run if status changes from 'placed' to 'approved'
+          // ==================================================================
+          // CASE A: APPROVING (Placed -> Approved)
+          // Action: DEDUCT STOCK only. (Points were debited on POST)
+          // ==================================================================
           if (currentStatus === 'placed' && status === 'approved') {
               
-              // 1. Create Ledger Debit Entry (Negative Points)
-              await tx.insert(pointsLedger)
-                  .values({
-                      masonId: masonId,
-                      sourceType: 'redemption',
-                      sourceId: id, // Link back to the Redemption record
-                      points: -points, // ⬅️ DEBIT: Insert negative points
-                      memo: `Points deducted for approved redemption ID ${id}. Approved by TSO ${authenticatedUserId}.`,
-                  })
-                  .returning();
+              // 1. Safety Check: Is there enough Stock?
+              const [item] = await tx.select({ stock: rewards.stock })
+                                     .from(rewards).where(eq(rewards.id, rewardId));
+                                     
+              if (!item || item.stock < qty) {
+                   throw new Error(`Insufficient stock to approve. Available: ${item?.stock ?? 0}, Required: ${qty}`);
+              }
 
-              // 2. Atomically Update Mason's Balance (Subtract points)
-              await tx.update(masonPcSide)
-                  .set({
-                      pointsBalance: sql`${masonPcSide.pointsBalance} - ${points}`, // ⬅️ DEBIT: Subtract the points
-                  })
-                  .where(eq(masonPcSide.id, masonId));
+              // 2. DEDUCT STOCK
+              await tx.update(rewards)
+                  .set({ stock: sql`${rewards.stock} - ${qty}` })
+                  .where(eq(rewards.id, rewardId));
 
-              // 3. Update Redemption Status
+              // 3. Update Status
               const [updated] = await tx.update(rewardRedemptions)
                   .set({ status: 'approved', updatedAt: new Date() })
                   .where(eq(rewardRedemptions.id, id))
                   .returning();
               
               return updated;
-
           } 
           
-          // 4.2. Status Fulfillment (Non-financial change)
-          else if (status !== 'approved') {
-              // If status is 'shipped' or 'delivered' or 'rejected', just update status
+          // ==================================================================
+          // CASE B: REJECTING (Placed -> Rejected)
+          // Action: REFUND Points (Stock was never taken)
+          // ==================================================================
+          else if (currentStatus === 'placed' && status === 'rejected') {
+              
+              // 1. REFUND POINTS (Ledger + Balance)
+              await tx.insert(pointsLedger).values({
+                  masonId: masonId,
+                  sourceType: 'adjustment', 
+                  points: points, // Positive (Refund)
+                  memo: `Refund: Order ${id} rejected by TSO ${authenticatedUserId}.`,
+              });
+
+              await tx.update(masonPcSide)
+                  .set({ pointsBalance: sql`${masonPcSide.pointsBalance} + ${points}` })
+                  .where(eq(masonPcSide.id, masonId));
+
+              // 2. Update Status
+              const [updated] = await tx.update(rewardRedemptions)
+                  .set({ status: 'rejected', updatedAt: new Date() })
+                  .where(eq(rewardRedemptions.id, id))
+                  .returning();
+
+              return updated;
+          }
+
+          // ==================================================================
+          // CASE C: REJECTING (Approved -> Rejected)
+          // Action: REFUND Points + RETURN Stock
+          // ==================================================================
+          else if (currentStatus === 'approved' && status === 'rejected') {
+              
+              // 1. REFUND POINTS
+              await tx.insert(pointsLedger).values({
+                  masonId: masonId,
+                  sourceType: 'adjustment',
+                  points: points, 
+                  memo: `Refund: Approved Order ${id} rejected by TSO ${authenticatedUserId}.`,
+              });
+
+              await tx.update(masonPcSide)
+                  .set({ pointsBalance: sql`${masonPcSide.pointsBalance} + ${points}` })
+                  .where(eq(masonPcSide.id, masonId));
+
+              // 2. RETURN STOCK
+              await tx.update(rewards)
+                  .set({ stock: sql`${rewards.stock} + ${qty}` })
+                  .where(eq(rewards.id, rewardId));
+
+              // 3. Update Status
+              const [updated] = await tx.update(rewardRedemptions)
+                  .set({ status: 'rejected', updatedAt: new Date() })
+                  .where(eq(rewardRedemptions.id, id))
+                  .returning();
+
+              return updated;
+          }
+          
+          // ==================================================================
+          // CASE D: FULFILLMENT (Approved -> Shipped -> Delivered)
+          // Action: Just update status
+          // ==================================================================
+          else {
               const [updated] = await tx.update(rewardRedemptions)
                   .set({ status: status, updatedAt: new Date() })
                   .where(eq(rewardRedemptions.id, id))
                   .returning();
-                  
               return updated;
-          }
-          
-          // 4.3. Prevent Re-Debit or Invalid Flow (e.g., approved -> delivered)
-          else if (currentStatus === 'approved' && status === 'approved') {
-              // Status is already approved, proceed with non-financial update (just update updatedAt)
-              const [updated] = await tx.update(rewardRedemptions)
-                  .set({ updatedAt: new Date() })
-                  .where(eq(rewardRedemptions.id, id))
-                  .returning();
-              return updated;
-          }
-          
-          // Catch all for impossible or invalid status moves that were not caught above
-          else {
-              tx.rollback();
-              throw new Error(`Invalid status transition from '${currentStatus}' to '${status}'.`);
           }
       });
       
-      // 5. Return success
       res.json({
         success: true,
-        message: `${tableName} status updated to '${updatedRecord.status}' successfully.`,
+        message: `Status updated to '${updatedRecord.status}'.`,
         data: updatedRecord,
       });
 
@@ -140,9 +178,8 @@ export default function setupRewardsRedemptionPatchRoute(app: Express) {
       
       console.error(`PATCH ${tableName} error:`, error);
       
-      // Handle the transaction rollback error if mason or balance check failed
       const msg = (error as Error)?.message ?? '';
-      if (msg.includes('Invalid status transition') || msg.includes('Mason ID')) {
+      if (msg.includes('Insufficient') || msg.includes('Cannot change')) {
          return res.status(400).json({ success: false, error: msg });
       }
       
@@ -153,5 +190,5 @@ export default function setupRewardsRedemptionPatchRoute(app: Express) {
     }
   });
 
-  console.log('✅ Reward Redemptions PATCH (Debit/Fulfillment) endpoint setup complete');
+  console.log('✅ Reward Redemptions PATCH (Inventory & Financials) endpoint setup complete');
 }
