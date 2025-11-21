@@ -59,6 +59,7 @@ export default function setupRewardsRedemptionGetRoutes(app: Express) {
             ...getTableColumns(table),
             masonName: masonPcSide.name,
             rewardName: rewards.itemName,
+            rewardMeta: rewards.meta,
         })
         .from(table)
         .leftJoin(masonPcSide, eq(table.masonId, masonPcSide.id))

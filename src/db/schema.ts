@@ -90,7 +90,7 @@ export const tsoMeetings = pgTable("tso_meetings", {
   updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
 }, (t) => [
   index("idx_tso_meetings_created_by_user_id").on(t.createdByUserId),
-  index("idx_user_site_id").on(t.siteId),
+  index("idx_tso_meetings_site_id").on(t.siteId),
 ]);
 
 /* ========================= permanent_journey_plans (FIXED) ========================= */
@@ -123,7 +123,7 @@ export const permanentJourneyPlans = pgTable("permanent_journey_plans", {
   index("idx_pjp_bulk_op_id").on(t.bulkOpId),
   uniqueIndex("uniq_pjp_user_dealer_plan_date").on(t.userId, t.dealerId, t.planDate),
   uniqueIndex("uniq_pjp_idempotency_key_not_null").on(t.idempotencyKey).where(sql`${t.idempotencyKey} IS NOT NULL`),
-  index("idx_user_site_id").on(t.siteId),
+  index("idx_pjp_site_id").on(t.siteId),
 ]);
 
 /* ========================= daily_visit_reports (FIXED w/ Sub Dealers) ========================= */
@@ -232,7 +232,7 @@ export const technicalVisitReports = pgTable("technical_visit_reports", {
   index("idx_technical_visit_reports_meeting_id").on(t.meetingId),
   index("idx_technical_visit_reports_pjp_id").on(t.pjpId),
   index("idx_tvr_mason_id").on(t.masonId),
-  index("idx_user_site_id").on(t.siteId),
+  index("idx_tvr_site_id").on(t.siteId),
 ]);
 
 /* ========================= dealers (extended to match Prisma) ========================= */
@@ -332,7 +332,7 @@ export const dealers = pgTable("dealers", {
 }, (t) => [
   index("idx_dealers_user_id").on(t.userId),
   index("idx_dealers_parent_dealer_id").on(t.parentDealerId),
-  index("idx_user_site_id").on(t.siteId),
+  index("idx_dealers_site_id").on(t.siteId),
 ]);
 
 /* ========================= salesman_attendance ========================= */
@@ -434,7 +434,7 @@ export const geoTracking = pgTable("geo_tracking", {
   index("idx_geo_active").on(t.isActive),
   index("idx_geo_tracking_user_id").on(t.userId),
   index("idx_geo_tracking_recorded_at").on(t.recordedAt),
-  index("idx_user_site_id").on(t.siteId),
+  index("idx_geo_tracking_site_id").on(t.siteId),
 ]);
 
 /* ========================= daily_tasks ========================= */
@@ -460,7 +460,7 @@ export const dailyTasks = pgTable("daily_tasks", {
   index("idx_daily_tasks_related_dealer_id").on(t.relatedDealerId),
   index("idx_daily_tasks_date_user").on(t.taskDate, t.userId),
   index("idx_daily_tasks_status").on(t.status),
-  index("idx_user_site_id").on(t.siteId),
+  index("idx_daily_tasks_site_id").on(t.siteId),
 ]);
 
 /* ========================= dealer_reports_and_scores ========================= */
@@ -524,7 +524,6 @@ export const rewards = pgTable("rewards", {
 }, (t) => [
   index("idx_rewards_category_id").on(t.categoryId),
 ]);
-
 
 /* ========================= gift_allocation_logs ========================= */
 export const giftAllocationLogs = pgTable("gift_allocation_logs", {
@@ -647,7 +646,7 @@ export const masonPcSide = pgTable("mason_pc_side", {
 }, (t) => [
   index("idx_mason_pc_side_dealer_id").on(t.dealerId),
   index("idx_mason_pc_side_user_id").on(t.userId),
-  index("idx_user_site_id").on(t.siteId),
+  index("idx_mason_pc_side_site_id").on(t.siteId),
 ]);
 
 /* ========================= otp_verifications ========================= */
@@ -678,7 +677,7 @@ export const masonOnScheme = pgTable("mason_on_scheme", {
   status: varchar("status", { length: 255 }),
 }, (t) => ({
   pk: primaryKey({ columns: [t.masonId, t.schemeId] }),
-  siteIndex: index("idx_user_site_id").on(t.siteId),
+  siteIndex: index("idx_mason_on_scheme_site_id").on(t.siteId),
 }));
 
 /* ========================= masons_on_meetings (join table) ========================= */
@@ -827,6 +826,34 @@ export const technicalSites = pgTable("technical_sites", {
   index("idx_technical_sites_mason_id").on(t.relatedMasonpcID),
 ]);
 
+export const schemeSlabs = pgTable("scheme_slabs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+
+  minBagsBest: integer("min_bags_best"),      
+  minBagsOthers: integer("min_bags_others"),  
+  pointsEarned: integer("points_earned").notNull(),
+  slabDescription: varchar("slab_description", { length: 255 }), 
+  
+  rewardId: integer("reward_id").references(() => rewards.id, { onDelete: "set null" }),
+  schemeId: uuid("scheme_id").notNull().references(() => schemesOffers.id, { onDelete: "cascade" }),
+
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 6 }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, precision: 6 }).defaultNow(),
+}, (t) => [
+  index("idx_scheme_slabs_scheme_id").on(t.schemeId),
+]);
+
+export const masonSlabAchievements = pgTable("mason_slab_achievements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  masonId: uuid("mason_id").notNull().references(() => masonPcSide.id, { onDelete: "cascade" }),
+  schemeSlabId: uuid("scheme_slab_id").notNull().references(() => schemeSlabs.id, { onDelete: "cascade" }),
+  achievedAt: timestamp("achieved_at", { withTimezone: true }).defaultNow().notNull(),
+  pointsAwarded: integer("points_awarded").notNull(),
+}, (t) => [
+  index("idx_msa_mason_id").on(t.masonId),
+  uniqueIndex("unique_mason_slab_claim").on(t.masonId, t.schemeSlabId), 
+]);
+
 /* ========================= drizzle-zod insert schemas ========================= */
 export const insertCompanySchema = createInsertSchema(companies);
 export const insertUserSchema = createInsertSchema(users);
@@ -866,3 +893,5 @@ export const insertBagLiftSchema = createInsertSchema(bagLifts);
 export const insertPointsLedgerSchema = createInsertSchema(pointsLedger);
 export const insertRewardRedemptionSchema = createInsertSchema(rewardRedemptions);
 export const insertTechnicalSiteSchema = createInsertSchema(technicalSites);
+export const insertSchemeSlabsSchema = createInsertSchema(schemeSlabs);
+export const insertMasonSlabAchievementSchema = createInsertSchema(masonSlabAchievements);

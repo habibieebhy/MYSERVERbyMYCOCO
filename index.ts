@@ -34,6 +34,8 @@ import setupRewardsGetRoutes from './src/routes/dataFetchingRoutes/rewards';
 import setupRewardsRedemptionGetRoutes from './src/routes/dataFetchingRoutes/rewardsRedemption';
 import setupKycSubmissionsRoutes from './src/routes/dataFetchingRoutes/kycSubmissions';
 import setupTechnicalSitesRoutes from './src/routes/dataFetchingRoutes/technicalSites';
+import setupSchemeSlabsGetRoutes from './src/routes/dataFetchingRoutes/schemeSlabs';
+import setupMasonSlabAchievementsGetRoutes from './src/routes/dataFetchingRoutes/masonSlabAchievements';
 
 // Data Sync UPSERT
 import setupDealerSyncRoutes from './src/routes/dataSync/dealer';
@@ -82,6 +84,8 @@ import setupKycSubmissionsPostRoute from './src/routes/formSubmissionRoutes/kycS
 import setupRewardsPostRoute from './src/routes/formSubmissionRoutes/rewards';
 import setupPointsLedgerPostRoutes from './src/routes/dataFetchingRoutes/pointsLedger';
 import setupTechnicalSitesPostRoutes from './src/routes/formSubmissionRoutes/technicalSites';
+import setupSchemeSlabsPostRoute from './src/routes/formSubmissionRoutes/schemeSlabs';
+import setupMasonSlabAchievementsPostRoute from './src/routes/formSubmissionRoutes/masonSlabAchievements';
 
 
 // --- Import UPDATE (PATCH) route setups ---
@@ -193,6 +197,8 @@ setupRewardsGetRoutes(app);
 setupRewardsRedemptionGetRoutes(app);
 setupKycSubmissionsRoutes(app);
 setupTechnicalSitesRoutes(app);
+setupSchemeSlabsGetRoutes(app);
+setupMasonSlabAchievementsGetRoutes(app);
 
 
 // POST Endpoints
@@ -222,6 +228,8 @@ setupKycSubmissionsPostRoute(app);
 setupRewardsPostRoute(app);
 setupPointsLedgerPostRoutes(app);
 setupTechnicalSitesPostRoutes(app);
+setupSchemeSlabsPostRoute(app);
+setupMasonSlabAchievementsPostRoute(app);
 
 // DELETE Endpoints
 setupDealersDeleteRoutes(app);           // DELETE /api/dealers/*

@@ -3,11 +3,16 @@
 
 import { Request, Response, Express } from 'express';
 import { db } from '../../db/db';
-// 🟢 IMPORT rewards table for stock management
-import { rewardRedemptions, masonPcSide, pointsLedger, rewards } from '../../db/schema'; 
+import { 
+  rewardRedemptions, 
+  masonPcSide, 
+  pointsLedger, 
+  rewards 
+} from '../../db/schema'; 
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+// Define custom request interface for your Auth middleware
 interface CustomRequest extends Request {
     auth?: {
         sub: string; 
@@ -22,11 +27,11 @@ const redemptionFulfillmentSchema = z.object({
   fulfillmentNotes: z.string().max(500).optional().nullable(),
 }).strict();
 
-
 export default function setupRewardsRedemptionPatchRoute(app: Express) {
   
   app.patch('/api/rewards-redemption/:id', async (req: CustomRequest, res: Response) => {
     const tableName = 'Reward Redemption';
+    
     try {
       const { id } = req.params;
 
@@ -36,57 +41,66 @@ export default function setupRewardsRedemptionPatchRoute(app: Express) {
       }
       const authenticatedUserId = parseInt(req.auth.sub, 10);
       
+      // Validate UUID
       if (!z.string().uuid().safeParse(id).success) {
         return res.status(400).json({ success: false, error: 'Invalid Redemption ID format. Expected UUID.' });
       }
       
-      // 2. Validate input
+      // 2. Validate input body
       const input = redemptionFulfillmentSchema.parse(req.body);
+      const { status, fulfillmentNotes } = input;
       
-      // 3. Fetch existing record
-      const [existingRecord] = await db.select().from(rewardRedemptions).where(eq(rewardRedemptions.id, id)).limit(1);
+      // 3. Fetch existing record to check current state
+      const [existingRecord] = await db.select()
+        .from(rewardRedemptions)
+        .where(eq(rewardRedemptions.id, id))
+        .limit(1);
+
       if (!existingRecord) {
         return res.status(404).json({ error: `${tableName} with ID '${id}' not found.` });
       }
       
-      const { status, fulfillmentNotes } = input;
       const currentStatus = existingRecord.status;
-      const masonId = existingRecord.masonId;
-      const points = existingRecord.pointsDebited; 
-      const qty = existingRecord.quantity; 
-      const rewardId = existingRecord.rewardId; 
+      const { masonId, pointsDebited: points, quantity: qty, rewardId } = existingRecord;
 
-      // Flow Validation
+      // Flow Logic Checks
       if (currentStatus === 'delivered' && status !== 'delivered') {
          return res.status(400).json({ success: false, error: 'Cannot change status of an already delivered item.' });
       }
+      if (currentStatus === 'rejected') {
+         return res.status(400).json({ success: false, error: 'Cannot update a rejected order. Please place a new order.' });
+      }
 
       // --- 4. CORE FINANCIAL & INVENTORY TRANSACTION ---
-      
       const updatedRecord = await db.transaction(async (tx) => {
           
           // ==================================================================
-          // CASE A: APPROVING (Placed -> Approved)
-          // Action: DEDUCT STOCK only. (Points were debited on POST)
+          // SCENARIO A: APPROVING (Placed -> Approved)
+          // Action: DEDUCT STOCK. (Points were already deducted on creation)
           // ==================================================================
           if (currentStatus === 'placed' && status === 'approved') {
               
-              // 1. Safety Check: Is there enough Stock?
+              // Check Stock
               const [item] = await tx.select({ stock: rewards.stock })
-                                     .from(rewards).where(eq(rewards.id, rewardId));
+                                     .from(rewards)
+                                     .where(eq(rewards.id, rewardId));
                                      
               if (!item || item.stock < qty) {
                    throw new Error(`Insufficient stock to approve. Available: ${item?.stock ?? 0}, Required: ${qty}`);
               }
 
-              // 2. DEDUCT STOCK
+              // Deduct Stock
               await tx.update(rewards)
                   .set({ stock: sql`${rewards.stock} - ${qty}` })
                   .where(eq(rewards.id, rewardId));
 
-              // 3. Update Status
+              // Update Status
               const [updated] = await tx.update(rewardRedemptions)
-                  .set({ status: 'approved', updatedAt: new Date() })
+                  .set({ 
+                      status: 'approved', 
+                      updatedAt: new Date() 
+                      // We could save fulfillmentNotes here if you add a column for it
+                  })
                   .where(eq(rewardRedemptions.id, id))
                   .returning();
               
@@ -94,24 +108,27 @@ export default function setupRewardsRedemptionPatchRoute(app: Express) {
           } 
           
           // ==================================================================
-          // CASE B: REJECTING (Placed -> Rejected)
-          // Action: REFUND Points (Stock was never taken)
+          // SCENARIO B: REJECTING (Placed -> Rejected)
+          // Action: REFUND POINTS (Stock was never taken)
           // ==================================================================
           else if (currentStatus === 'placed' && status === 'rejected') {
               
-              // 1. REFUND POINTS (Ledger + Balance)
+              // Refund Points Logic
               await tx.insert(pointsLedger).values({
+                  id: crypto.randomUUID(), // Ensure your DB generates UUIDs or import crypto
                   masonId: masonId,
-                  sourceType: 'adjustment', 
-                  points: points, // Positive (Refund)
-                  memo: `Refund: Order ${id} rejected by TSO ${authenticatedUserId}.`,
+                  sourceType: 'adjustment', // or 'refund'
+                  sourceId: id, // Link back to the order
+                  points: points, // Positive value adds back to balance
+                  memo: `Refund: Order ${id} rejected by TSO. Reason: ${fulfillmentNotes || 'N/A'}`,
               });
 
+              // Add to Balance
               await tx.update(masonPcSide)
                   .set({ pointsBalance: sql`${masonPcSide.pointsBalance} + ${points}` })
                   .where(eq(masonPcSide.id, masonId));
 
-              // 2. Update Status
+              // Update Status
               const [updated] = await tx.update(rewardRedemptions)
                   .set({ status: 'rejected', updatedAt: new Date() })
                   .where(eq(rewardRedemptions.id, id))
@@ -121,29 +138,31 @@ export default function setupRewardsRedemptionPatchRoute(app: Express) {
           }
 
           // ==================================================================
-          // CASE C: REJECTING (Approved -> Rejected)
-          // Action: REFUND Points + RETURN Stock
+          // SCENARIO C: REJECTING (Approved -> Rejected)
+          // Action: REFUND POINTS + RETURN STOCK
           // ==================================================================
           else if (currentStatus === 'approved' && status === 'rejected') {
               
-              // 1. REFUND POINTS
+              // Refund Points
               await tx.insert(pointsLedger).values({
+                  id: crypto.randomUUID(),
                   masonId: masonId,
                   sourceType: 'adjustment',
+                  sourceId: id,
                   points: points, 
-                  memo: `Refund: Approved Order ${id} rejected by TSO ${authenticatedUserId}.`,
+                  memo: `Refund: Approved Order ${id} cancelled.`,
               });
 
               await tx.update(masonPcSide)
                   .set({ pointsBalance: sql`${masonPcSide.pointsBalance} + ${points}` })
                   .where(eq(masonPcSide.id, masonId));
 
-              // 2. RETURN STOCK
+              // Return Stock
               await tx.update(rewards)
                   .set({ stock: sql`${rewards.stock} + ${qty}` })
                   .where(eq(rewards.id, rewardId));
 
-              // 3. Update Status
+              // Update Status
               const [updated] = await tx.update(rewardRedemptions)
                   .set({ status: 'rejected', updatedAt: new Date() })
                   .where(eq(rewardRedemptions.id, id))
@@ -153,8 +172,8 @@ export default function setupRewardsRedemptionPatchRoute(app: Express) {
           }
           
           // ==================================================================
-          // CASE D: FULFILLMENT (Approved -> Shipped -> Delivered)
-          // Action: Just update status
+          // SCENARIO D: FULFILLMENT (Approved -> Shipped -> Delivered)
+          // Action: Just update status. No financial/stock changes needed.
           // ==================================================================
           else {
               const [updated] = await tx.update(rewardRedemptions)
@@ -172,12 +191,14 @@ export default function setupRewardsRedemptionPatchRoute(app: Express) {
       });
 
     } catch (error: any) {
+      // Handle Zod Errors
       if (error instanceof z.ZodError) {
         return res.status(400).json({ success: false, error: 'Validation failed', details: error.issues });
       }
       
       console.error(`PATCH ${tableName} error:`, error);
       
+      // Handle Business Logic Errors
       const msg = (error as Error)?.message ?? '';
       if (msg.includes('Insufficient') || msg.includes('Cannot change')) {
          return res.status(400).json({ success: false, error: msg });
